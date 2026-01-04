@@ -1,0 +1,8 @@
+{
+  "name": "FinTab - Point of Sales 2026",
+  "description": "A comprehensive Point of Sale (POS) application to streamline business operations, from inventory and customer management to staff commissions and financial reporting. Features a modern dashboard, storefront, and robust management tools.",
+  "requestFramePermissions": [
+    "camera",
+    "bluetooth"
+  ]
+}

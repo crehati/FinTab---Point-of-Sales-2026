@@ -1,0 +1,344 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACLSURBVFhH7YxBCoAwDEV7/0t7A8VCEHupI/dEFjWQzH3z4AIAAAAAAM909f2QpNM7K9sY2YI2E5tJjmaT40kKzWpI9k8HAYzhrM8z+bzgYaY8dZMIxNBEJg2lUJAXG0Ww2f80mgWj2YtL1i5kUE41mE1m6vXQ/AAAAAAAwnb4A6/kGZ0uYxsoAAAAASUVORK5CYII=" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>FinTab</title>
+    
+    <!-- SYSTEM-WIDE TYPOGRAPHY LOCK: Inter (Primary) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+            },
+            /* SPACING SYSTEM LOCK: Consistent tokens across the app */
+            spacing: {
+              'xs': '4px',   /* Extra Small: 4px */
+              'sm': '8px',   /* Small: 8px */
+              'md': '12px',  /* Medium: 12px */
+              'lg': '16px',  /* Large: 16px */
+              'xl': '24px',  /* Extra Large: 24px */
+              'xxl': '32px', /* Double Extra Large: 32px */
+            },
+            colors: {
+              primary: '#2563EB',
+              'accent-teal': '#14B8A6',
+              'accent-sky': '#38BDF8',
+              'neutral-light': '#F3F4F6',
+              'neutral-dark': '#374151',
+              'neutral-medium': '#6B7280',
+              success: '#22C55E',
+              warning: '#FACC15',
+              error: '#EF4444',
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.4s ease-out',
+              'scale-in': 'scaleIn 0.2s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              scaleIn: {
+                '0%': { transform: 'scale(0.95)', opacity: '0' },
+                '100%': { transform: 'scale(1)', opacity: '1' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.1.1",
+    "recharts": "https://aistudiocdn.com/recharts@^3.2.1",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.1",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^0.12.0",
+    "firebase/": "https://esm.sh/firebase@^12.7.0/"
+  }
+}
+</script>
+<style>
+  :root {
+    --header-height: 64px;
+    --sidebar-width: 280px;
+    font-size: 16px;
+    
+    /* SYSTEMIC TABLE VARIABLES */
+    --table-px: 1.5rem;
+    --table-py: 1.25rem;
+    --table-font-size: 0.875rem;
+    --table-header-py: 1rem;
+  }
+
+  @media (max-width: 1024px) {
+    :root { 
+      --table-px: 1rem;
+      --table-py: 0.875rem;
+      --table-font-size: 0.8125rem;
+    }
+  }
+
+  @media (max-width: 640px) {
+    :root { font-size: 14px; }
+  }
+
+  * {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-content-smoothing: grayscale;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #f8fafc;
+    line-height: 1.5;
+    letter-spacing: -0.011em;
+    color: #1e293b;
+  }
+
+  body {
+    overscroll-behavior-y: none;
+    overflow-x: hidden;
+  }
+
+  #root {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+  }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #475569;
+  }
+
+  /* UTILITY: Scroll Lock (Managed via React) */
+  .no-scroll {
+    overflow: hidden !important;
+    touch-action: none;
+  }
+
+  /* Diagnostic mode for detecting "stuck" scrolling due to overlays */
+  body.debug-overlays [style*="position: fixed"],
+  body.debug-overlays [style*="position: absolute"] {
+    outline: 2px dashed #EF4444 !important;
+    outline-offset: -2px;
+  }
+  body.debug-overlays [style*="inset: 0"],
+  body.debug-overlays [style*="top: 0"] {
+    background-color: rgba(239, 68, 68, 0.05) !important;
+  }
+
+  /* BUTTON HIERARCHY LOCK */
+  .btn-base {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 1.25rem;
+    padding: 1rem 1.5rem;
+    font-size: 0.6875rem; /* ~11px */
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-base:active {
+    transform: scale(0.96);
+  }
+  .btn-base:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-primary {
+    background-color: #2563EB;
+    color: white;
+    box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: #1D4ED8;
+    box-shadow: 0 12px 20px -5px rgba(37, 99, 235, 0.3);
+  }
+
+  .btn-secondary {
+    background-color: #F1F5F9;
+    color: #475569;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #E2E8F0;
+    color: #1E293B;
+  }
+  .dark .btn-secondary {
+    background-color: #1E293B;
+    color: #CBD5E1;
+  }
+  .dark .btn-secondary:hover:not(:disabled) {
+    background-color: #334155;
+    color: white;
+  }
+
+  /* GLOBAL STATUS COLOR SYSTEM LOCK */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.625rem; /* ~10px */
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-width: 1px;
+    line-height: 1.2;
+    white-space: nowrap;
+    border-style: solid;
+  }
+
+  .status-approved, .status-completed, .status-active, .status-success { background-color: #f0fdf4; color: #166534; border-color: #dcfce7; }
+  .status-pending, .status-review, .status-invited, .status-warning { background-color: #fffbeb; color: #92400e; border-color: #fef3c7; }
+  .status-rejected, .status-failed, .status-out-of-stock, .status-error { background-color: #fef2f2; color: #991b1b; border-color: #fee2e2; }
+  .status-draft, .status-inactive, .status-cancelled, .status-neutral { background-color: #f8fafc; color: #475569; border-color: #f1f5f9; }
+
+  /* SYSTEMIC BADGE STYLING */
+  .badge-standard {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 900;
+    line-height: 1;
+    color: white;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    z-index: 10;
+    box-shadow: 0 0 0 2px white;
+  }
+  .dark .badge-standard { box-shadow: 0 0 0 2px #111827; }
+
+  /* SYSTEMIC TABLE LOCK */
+  .table-wrapper {
+    overflow-x: auto;
+    position: relative;
+    border-radius: 1.5rem;
+    border: 1px solid #F1F5F9;
+  }
+  .dark .table-wrapper { border-color: #1F2937; }
+
+  .table-container {
+    overflow-y: auto;
+    background-color: white;
+  }
+  .dark .table-container { background-color: #111827; }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #F8FAFC;
+    border-bottom: 2px solid #E2E8F0;
+    padding: var(--table-header-py) var(--table-px);
+    text-align: left;
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 800;
+    color: #64748B;
+    white-space: nowrap;
+  }
+  .dark thead th { background-color: #0F172A; border-bottom-color: #334155; color: #94A3B8; }
+
+  tbody td {
+    padding: var(--table-py) var(--table-px);
+    font-size: var(--table-font-size);
+    border-bottom: 1px solid #F1F5F9;
+    vertical-align: middle;
+  }
+  .dark tbody td { border-bottom-color: #1F2937; }
+
+  .table-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  input, textarea, select {
+    appearance: none !important;
+    border-radius: 0.75rem !important;
+    font-size: 0.875rem !important;
+    padding: 12px;
+    transition: all 0.2s ease;
+  }
+
+  @media print {
+    body { overflow: visible !important; height: auto !important; width: auto !important; }
+    #root { display: block !important; }
+    .no-print { display: none !important; }
+    .printable-area { position: absolute; left: 0; top: 0; width: 100%; }
+  }
+</style>
+    <script>
+      // Global diagnostic tool to find invisible overlays
+      window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'd') {
+          document.body.classList.toggle('debug-overlays');
+          console.info('FinTab Diagnostic: Overlay visualization ' + (document.body.classList.contains('debug-overlays') ? 'enabled' : 'disabled'));
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-slate-50 dark:bg-gray-950 font-sans">
+    <div id="modal-root"></div>
+    <div id="receipt-root"></div>
+    <div id="debug-root"></div>
+    <div id="root"></div>
+  </body>
+</html>

@@ -67,7 +67,6 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, cart, currentUs
         return {
             main: [
                 { to: '/dashboard', text: t('sidebar.dashboard'), icon: <DashboardIcon /> },
-                { to: '/assistant', text: t('sidebar.aiAssistant'), icon: <AIIcon />, module: 'AI', action: 'view_assistant' },
                 { to: '/today', text: t('today.title'), icon: <TodayIcon />, module: 'REPORTS', action: 'view_sales_reports' },
                 { to: '/reports', text: t('reports.title'), icon: <ReportsIcon />, module: 'REPORTS', action: 'view_sales_reports' },
                 { to: '/items', text: 'Internal Items', icon: <InventoryIcon />, module: 'SALES', action: 'view_counter' },

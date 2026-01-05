@@ -116,7 +116,7 @@ const KPIMetric: React.FC<{ title: string; value: number | string; cs: string; c
         </div>
         {caption && (
             <div className="mt-6">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">{caption}</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{caption}</p>
             </div>
         )}
     </div>
@@ -383,7 +383,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
             {/* Staff-Specific Action Hub */}
             {isStaff && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 animate-fade-in">
-                    <div className="lg:col-span-2">
+                    <div className="lg:col-span-3">
                         <NavLink to="/counter" className="relative h-full min-h-[280px] p-12 bg-slate-900 text-white rounded-[3.5rem] shadow-2xl flex flex-col justify-center group hover:scale-[1.01] transition-all border border-white/5 overflow-hidden">
                             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full -mr-32 -mt-32 blur-[100px] group-hover:scale-110 transition-transform duration-1000"></div>
                             <div className="relative z-10">
@@ -399,19 +399,6 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                                 <CounterIcon className="w-24 h-24 text-white" />
                             </div>
                         </NavLink>
-                    </div>
-                    <div className="lg:col-span-1 space-y-6">
-                        <div className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] border border-slate-50 dark:border-gray-800 shadow-sm flex flex-col justify-between h-full">
-                            <div className="flex items-center gap-5">
-                                <div className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 p-4 rounded-2xl shadow-sm"><LightBulbIcon className="w-6 h-6" /></div>
-                                <div>
-                                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">AI Intel Node</h4>
-                                    <p className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-tighter mt-1">Operational Protocol</p>
-                                </div>
-                            </div>
-                            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 leading-relaxed mt-8 uppercase tracking-tight">Access global SKU datasets and terminal logic optimization via Gemini 3 AI.</p>
-                            <NavLink to="/assistant" className="mt-8 py-4 w-full bg-slate-50 dark:bg-gray-800 text-[9px] font-black text-primary uppercase text-center rounded-2xl tracking-[0.3em] hover:bg-primary hover:text-white transition-all">Connect Assistant →</NavLink>
-                        </div>
                     </div>
                 </div>
             )}

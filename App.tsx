@@ -32,7 +32,6 @@ import Receipts from './components/Receipts';
 import Login from './components/Login';
 import Onboarding from './components/Onboarding';
 import BottomNavBar from './components/BottomNavBar';
-import AIAssistant from './components/AIAssistant';
 import Today from './components/Today';
 import Reports from './components/Reports';
 import Items from './components/Items';
@@ -135,9 +134,7 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
 /**
  * Global Error Boundary - Intercepts unhandled rendering exceptions
  */
-// Fix: Added optional children to the props interface to resolve the TypeScript error in index.tsx where children were reported as missing in type {}.
 export class ErrorBoundary extends React.Component<{ children?: React.ReactNode }, { hasError: boolean }> {
-    // Fix: Updated constructor to accept optional children in props.
     constructor(props: { children?: React.ReactNode }) {
         super(props);
         this.state = { hasError: false };
@@ -199,7 +196,7 @@ const SplashScreen = ({ onComplete }: { onComplete: () => void }) => {
     }, [onComplete]);
 
     return (
-        <div className={`fixed inset-0 z-[1000] flex items-center justify-center bg-white dark:bg-gray-950 transition-opacity duration-300 ease-in-out ${isFadingOut ? 'opacity-0' : 'opacity-100'}`}>
+        <div className={`fixed inset-0 z-[100] flex items-center justify-center bg-white dark:bg-gray-950 transition-opacity duration-300 ease-in-out ${isFadingOut ? 'opacity-0' : 'opacity-100'}`}>
             <div className={`relative transition-all duration-[800ms] ease-out transform ${isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
                 <svg viewBox="0 0 4000 4000" className="w-48 h-48 md:w-56 md:h-56 drop-shadow-xl" xmlns="http://www.w3.org/2000/svg">
                     <defs>
@@ -398,10 +395,6 @@ export default function App() {
         });
     };
 
-    /**
-     * CENTRALIZED NOTIFICATION ENGINE
-     * Dispatches immediate bell alerts and simulated email protocols.
-     */
     const createNotification = useCallback((targetUserId: string, title: string, msg: string, type: AppNotification['type'], link?: string) => {
         const n: AppNotification = { 
             id: `nt-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, 
@@ -426,10 +419,6 @@ export default function App() {
         }
     }, [businessId, users]);
 
-    /**
-     * ROLE-BASED BROADCAST ENGINE
-     * Notifies all authorized participants of a specific workflow role.
-     */
     const notifyWorkflowParticipants = useCallback((roleKey: WorkflowRoleKey, title: string, msg: string, type: AppNotification['type'], link: string) => {
         const workflow = businessSettings?.workflowRoles || {};
         const assigned = workflow[roleKey] || [];
@@ -905,7 +894,6 @@ export default function App() {
                                 return next;
                             });
                         }} /></ProtectedRoute>} />
-                        <Route path="/assistant" element={<ProtectedRoute module="AI" action="view_assistant" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><AIAssistant {...commonProps} /></ProtectedRoute>} />
                         <Route path="/expenses" element={<ProtectedRoute module="EXPENSES" action="view_expenses" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><Expenses {...commonProps} setExpenses={createPersistentSetter(setExpenses, 'expenses')} /></ProtectedRoute>} />
                         <Route path="/cash-count" element={<ProtectedRoute module="FINANCE" action="cash_count_enter" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><CashCountPage {...commonProps} setCashCounts={createPersistentSetter(setCashCounts, 'cash_counts')} /></ProtectedRoute>} />
                         <Route path="/goods-costing" element={<ProtectedRoute module="FINANCE" action="goods_costing_view" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><GoodsCostingPage {...commonProps} setGoodsCostings={createPersistentSetter(setGoodsCosting, 'goods_costing')} setProducts={createPersistentSetter(setProducts, 'products')} /></ProtectedRoute>} />
@@ -934,7 +922,7 @@ export default function App() {
                         <Route path="/settings" element={<ProtectedRoute module="SETTINGS" action="view_settings" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><Settings {...commonProps} language={language} setLanguage={setLanguage} theme={theme} setTheme={setTheme} setReceiptSettings={createPersistentSetter(setReceiptSettings, 'receipt_settings')} /></ProtectedRoute>} />
                         <Route path="/settings/receipts" element={<ProtectedRoute module="SETTINGS" action="manage_business_settings" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><ReceiptSettings {...commonProps} settings={receiptSettings} setSettings={createPersistentSetter(setReceiptSettings, 'receipt_settings')} /></ProtectedRoute>} />
                         <Route path="/settings/permissions" element={<ProtectedRoute module="SETTINGS" action="manage_permissions" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><Permissions {...commonProps} onUpdatePermissions={createPersistentSetter(setPermissions, 'permissions')} /></ProtectedRoute>} />
-                        <Route path="/settings/business" element={<ProtectedRoute module="SETTINGS" action="manage_business_settings" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><BusinessSettings {...commonProps} onUpdateSettings={createPersistentSetter(setBusinessSettings, 'settings')} onUpdateBusinessProfile={createPersistentSetter(setBusinessProfile, 'business_profile')} onResetBusiness={handleResetBusiness} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} /></ProtectedRoute>} />
+                        <Route path="/settings/business" element={<ProtectedRoute module="SETTINGS" action="manage_business_settings" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><BusinessSettings {...commonProps} settings={businessSettings} onUpdateSettings={createPersistentSetter(setBusinessSettings, 'settings')} onUpdateBusinessProfile={createPersistentSetter(setBusinessProfile, 'business_profile')} onResetBusiness={handleResetBusiness} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} /></ProtectedRoute>} />
                         <Route path="/settings/owner" element={<ProtectedRoute module="SETTINGS" action="admin_settings" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><OwnerSettingsPage {...commonProps} onUpdate={createPersistentSetter(setOwnerSettings, 'owner_settings')} /></ProtectedRoute>} />
                         <Route path="/settings/printer" element={<ProtectedRoute module="SETTINGS" action="view_settings" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><PrinterSettings settings={printerSettings} onUpdateSettings={(s) => { setPrinterSettings(s); localStorage.setItem('fintab_printer_settings', JSON.stringify(s)); }} /></ProtectedRoute>} />
                         <Route path="/alerts" element={<ProtectedRoute module="REPORTS" action="view_sales_reports" user={currentUser} permissions={permissions} isSafeMode={!permissionsLoaded}><AlertsPage {...commonProps} onDismiss={handleDismissAnomaly} onMarkRead={handleMarkAnomalyRead} /></ProtectedRoute>} />

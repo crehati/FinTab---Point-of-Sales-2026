@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,23 +12,33 @@ const STEPS = [
   { id: 3, name: 'Initialization' },
 ];
 
-const Onboarding: React.FC<any> = () => {
+const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     const navigate = useNavigate();
-    const [step, setStep] = useState(1);
+    // Default to Step 2 if user is already authenticated
+    const [step, setStep] = useState(currentUser ? 2 : 1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
     const [owner, setOwner] = useState({
-        fullName: '',
-        email: '',
+        fullName: currentUser?.name || '',
+        email: currentUser?.email || '',
         password: '',
     });
     const [business, setBusiness] = useState({
         businessName: '',
         businessType: 'Retail',
-        businessEmail: '',
+        businessEmail: currentUser?.email || '',
     });
     const [businessPhone, setBusinessPhone] = useState({ countryCode: '+1', localPhone: ''});
+
+    // Ensure we skip step 1 if currentUser becomes available
+    useEffect(() => {
+        if (currentUser && step === 1) {
+            setStep(2);
+            setOwner(prev => ({ ...prev, fullName: currentUser.name, email: currentUser.email }));
+            setBusiness(prev => ({ ...prev, businessEmail: currentUser.email }));
+        }
+    }, [currentUser, step]);
 
     const handleRegistrationSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,31 +46,22 @@ const Onboarding: React.FC<any> = () => {
         setError(null);
 
         try {
-            // 1. Authenticate / Create Account
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: owner.email,
-                password: owner.password,
-                options: { data: { full_name: owner.fullName } }
-            });
+            let userId = currentUser?.id;
 
-            if (authError) throw authError;
-            if (!authData.user) throw new Error("Authentication initialization failed.");
-
-            // 2. Check for existing membership (Idempotent Onboarding)
-            const { data: existingMembership } = await supabase
-                .from('memberships')
-                .select('business_id')
-                .eq('user_id', authData.user.id)
-                .single();
-
-            if (existingMembership) {
-                localStorage.setItem('fintab_active_business_id', existingMembership.business_id);
-                setStep(3);
-                setLoading(false);
-                return;
+            // 1. Authenticate if not already logged in
+            if (!userId) {
+                const { data: authData, error: authError } = await supabase.auth.signUp({
+                    email: owner.email,
+                    password: owner.password,
+                    options: { data: { full_name: owner.fullName } }
+                });
+                if (authError) throw authError;
+                userId = authData.user?.id;
             }
 
-            // 3. Create New Business
+            if (!userId) throw new Error("Identity Protocol failure.");
+
+            // 2. Create New Business Node
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
             const { data: bizData, error: bizError } = await supabase
                 .from('businesses')
@@ -68,19 +70,19 @@ const Onboarding: React.FC<any> = () => {
                     type: business.businessType,
                     email: business.businessEmail,
                     phone: finalBusinessPhone,
-                    owner_id: authData.user.id,
+                    owner_id: userId,
                 })
                 .select()
                 .single();
 
             if (bizError) throw bizError;
 
-            // 4. Create Membership
+            // 3. Create Ownership Membership
             const { error: memberError } = await supabase
                 .from('memberships')
                 .insert({
                     business_id: bizData.id,
-                    user_id: authData.user.id,
+                    user_id: userId,
                     role: 'Owner'
                 });
 
@@ -155,7 +157,7 @@ const Onboarding: React.FC<any> = () => {
                                 <Input label="Official Ledger Email" value={business.businessEmail} onChange={e => setBusiness({...business, businessEmail: e.target.value})} placeholder="hq@business.io" />
                             </div>
                             <div className="flex gap-3">
-                                <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest">Back</button>
+                                {!currentUser && <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest">Back</button>}
                                 <button 
                                     onClick={handleRegistrationSubmit} 
                                     disabled={loading || !business.businessName}
@@ -174,10 +176,10 @@ const Onboarding: React.FC<any> = () => {
                             </div>
                             <div>
                                 <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Terminal Sync Complete</h2>
-                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Welcome. Your secure business node is now active. If you just signed up, please check your email for a verification link.</p>
+                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Welcome. Your secure business node is now active.</p>
                             </div>
                             <button 
-                                onClick={() => window.location.hash = "/dashboard"} 
+                                onClick={() => window.location.reload()} 
                                 className="w-full bg-slate-900 text-white py-5 rounded-xl font-black uppercase text-[11px] tracking-[0.3em] shadow-2xl active:scale-95 transition-all"
                             >
                                 Launch Dashboard

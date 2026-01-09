@@ -28,6 +28,8 @@ const GoodsCostingPage: React.FC<GoodsCostingProps> = ({ goodsCostings, setGoods
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isUpdateInventory, setIsUpdateInventory] = useState(false);
     const [reportToShow, setReportToShow] = useState<GoodsCosting | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
 
     const cs = receiptSettings.currencySymbol;
     const isOwnerOrAdmin = currentUser?.role === 'Owner' || currentUser?.role === 'Super Admin';
@@ -85,6 +87,12 @@ const GoodsCostingPage: React.FC<GoodsCostingProps> = ({ goodsCostings, setGoods
 
         return { totalBuying, totalAdd, landedTotal, unitCost, sellingPrice };
     }, [formData]);
+
+    const totalPages = Math.ceil((goodsCostings || []).length / itemsPerPage);
+    const paginatedCostings = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return (goodsCostings || []).slice(start, start + itemsPerPage);
+    }, [goodsCostings, currentPage]);
 
     const handleLinkProduct = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const pId = e.target.value;
@@ -159,6 +167,7 @@ const GoodsCostingPage: React.FC<GoodsCostingProps> = ({ goodsCostings, setGoods
             productNumber: '', productName: '', quantity: '', buyingUnitPrice: '', marginPercentage: '30', linkedProductId: '',
             additionalCosts: { taxes: '', shipping: '', transport: '', labor: '', transferFees: '', other: '', otherNote: '' }
         });
+        setCurrentPage(1);
 
         // Notify Approvers
         const approvers = workflowRoles?.costingApprover?.map(a => a.userId) || [];
@@ -316,78 +325,111 @@ const GoodsCostingPage: React.FC<GoodsCostingProps> = ({ goodsCostings, setGoods
             <Card title="Landed Cost Ledger">
                 <div className="overflow-x-auto -mx-6 px-6 min-h-[400px]">
                     {(goodsCostings || []).length > 0 ? (
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 dark:bg-gray-900 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">
-                                <tr>
-                                    <th className="px-6 py-6 rounded-tl-3xl">Landed Date</th>
-                                    <th className="px-6 py-6">Identity / Ref</th>
-                                    <th className="px-6 py-6 text-center">Batch Size</th>
-                                    <th className="px-6 py-6 text-right">Landed Total</th>
-                                    <th className="px-6 py-6 text-right">Unit Cost</th>
-                                    <th className="px-6 py-6 text-center">Status</th>
-                                    <th className="px-6 py-6 text-center rounded-tr-3xl">Protocol</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
-                                {goodsCostings.map(costing => (
-                                    <tr key={costing.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/50 transition-colors">
-                                        <td className="px-6 py-6 font-bold text-slate-500 uppercase tabular-nums">{new Date(costing.date).toLocaleDateString()}</td>
-                                        <td className="px-6 py-6">
-                                            <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter">{costing.productName || 'Unnamed Asset'}</p>
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">ID: {costing.productNumber}</p>
-                                        </td>
-                                        <td className="px-6 py-6 text-center font-black text-slate-900 dark:text-white tabular-nums">{costing.quantity}</td>
-                                        <td className="px-6 py-6 text-right font-bold text-slate-500 tabular-nums">{cs}{costing.totalLandedCost.toFixed(2)}</td>
-                                        <td className="px-6 py-6 text-right font-black text-rose-600 text-lg tabular-nums">{cs}{costing.unitCost.toFixed(2)}</td>
-                                        <td className="px-6 py-6 text-center">
-                                            {getStatusBadge(costing.status)}
-                                        </td>
-                                        <td className="px-6 py-6">
-                                            <div className="flex flex-col items-center gap-3">
-                                                {costing.status === 'first_signed' && costing.signatures?.first?.userId !== currentUser?.id && (
-                                                    <button 
-                                                        onClick={() => handleSecondSign(costing)}
-                                                        className="px-6 py-2 bg-primary text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-all"
-                                                    >
-                                                        Sign Verification
-                                                    </button>
-                                                )}
-                                                {costing.status === 'second_signed' && canApproveCosting && (
-                                                    <div className="flex gap-2">
-                                                        <button 
-                                                            onClick={() => handleOwnerAudit(costing, 'accepted')}
-                                                            className="px-5 py-2 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
-                                                        >
-                                                            Accept
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleOwnerAudit(costing, 'rejected')}
-                                                            className="px-5 py-2 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
-                                                        >
-                                                            Reject
-                                                        </button>
-                                                    </div>
-                                                )}
-                                                {costing.status === 'accepted' && (
-                                                    <button 
-                                                        onClick={() => setReportToShow(costing)}
-                                                        className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-black transition-all flex items-center gap-2 group"
-                                                    >
-                                                        <FilePdfIcon className="w-5 h-5" />
-                                                        <span className="text-[8px] font-black uppercase tracking-widest hidden group-hover:block animate-fade-in">Report PDF</span>
-                                                    </button>
-                                                )}
-                                                <div className="flex gap-2 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-                                                    <span>S1: {costing.signatures?.first?.userName?.split(' ')[0] || '---'}</span>
-                                                    <span>|</span>
-                                                    <span>S2: {costing.signatures?.second?.userName?.split(' ')[0] || '---'}</span>
-                                                </div>
-                                            </div>
-                                        </td>
+                        <>
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 dark:bg-gray-900 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">
+                                    <tr>
+                                        <th className="px-6 py-6 rounded-tl-3xl">Landed Date</th>
+                                        <th className="px-6 py-6">Identity / Ref</th>
+                                        <th className="px-6 py-6 text-center">Batch Size</th>
+                                        <th className="px-6 py-6 text-right">Landed Total</th>
+                                        <th className="px-6 py-6 text-right">Unit Cost</th>
+                                        <th className="px-6 py-6 text-center">Status</th>
+                                        <th className="px-6 py-6 text-center rounded-tr-3xl">Protocol</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
+                                    {paginatedCostings.map(costing => (
+                                        <tr key={costing.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                                            <td className="px-6 py-6 font-bold text-slate-500 uppercase tabular-nums">{new Date(costing.date).toLocaleDateString()}</td>
+                                            <td className="px-6 py-6">
+                                                <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter">{costing.productName || 'Unnamed Asset'}</p>
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">ID: {costing.productNumber}</p>
+                                            </td>
+                                            <td className="px-6 py-6 text-center font-black text-slate-900 dark:text-white tabular-nums">{costing.quantity}</td>
+                                            <td className="px-6 py-6 text-right font-bold text-slate-500 tabular-nums">{cs}{costing.totalLandedCost.toFixed(2)}</td>
+                                            <td className="px-6 py-6 text-right font-black text-rose-600 text-lg tabular-nums">{cs}{costing.unitCost.toFixed(2)}</td>
+                                            <td className="px-6 py-6 text-center">
+                                                {getStatusBadge(costing.status)}
+                                            </td>
+                                            <td className="px-6 py-6">
+                                                <div className="flex flex-col items-center gap-3">
+                                                    {costing.status === 'first_signed' && costing.signatures?.first?.userId !== currentUser?.id && (
+                                                        <button 
+                                                            onClick={() => handleSecondSign(costing)}
+                                                            className="px-6 py-2 bg-primary text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-all"
+                                                        >
+                                                            Sign Verification
+                                                        </button>
+                                                    )}
+                                                    {costing.status === 'second_signed' && canApproveCosting && (
+                                                        <div className="flex gap-2">
+                                                            <button 
+                                                                onClick={() => handleOwnerAudit(costing, 'accepted')}
+                                                                className="px-5 py-2 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
+                                                            >
+                                                                Accept
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleOwnerAudit(costing, 'rejected')}
+                                                                className="px-5 py-2 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {costing.status === 'accepted' && (
+                                                        <button 
+                                                            onClick={() => setReportToShow(costing)}
+                                                            className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-black transition-all flex items-center gap-2 group"
+                                                        >
+                                                            <FilePdfIcon className="w-5 h-5" />
+                                                            <span className="text-[8px] font-black uppercase tracking-widest hidden group-hover:block animate-fade-in">Report PDF</span>
+                                                        </button>
+                                                    )}
+                                                    <div className="flex gap-2 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+                                                        <span>S1: {costing.signatures?.first?.userName?.split(' ')[0] || '---'}</span>
+                                                        <span>|</span>
+                                                        <span>S2: {costing.signatures?.second?.userName?.split(' ')[0] || '---'}</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
+                        </>
                     ) : (
                         <EmptyState 
                             icon={<CalculatorIcon />} 

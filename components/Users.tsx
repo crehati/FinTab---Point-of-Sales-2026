@@ -1,6 +1,6 @@
 
 // @ts-nocheck
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { User, Sale, AttendanceRecord, PerformanceUser, ReceiptSettingsData, Role, CustomPayment, Customer, AppPermissions, UserPermissions, OwnerSettings, BusinessProfile } from '../types';
 import Card from './Card';
 import EmptyState from './EmptyState';
@@ -51,6 +51,8 @@ const Users: React.FC<UsersProps> = ({
     permissions, ownerSettings, businessProfile, handleInitiateCustomPayment 
 }) => {
     const [activeTab, setActiveTab] = useState<'commission' | 'hourly'>('commission');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -63,6 +65,10 @@ const Users: React.FC<UsersProps> = ({
     const [permissionEditingUser, setPermissionEditingUser] = useState<User | null>(null);
 
     const cs = receiptSettings?.currencySymbol || '$';
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [activeTab]);
 
     const handleOpenInviteModal = () => {
         if (!hasAccess(currentUser, 'SETTINGS', 'manage_permissions', permissions)) return;
@@ -147,11 +153,17 @@ const Users: React.FC<UsersProps> = ({
         });
     }, [users, sales]);
 
-    const commissionUsers = useMemo(() => 
-        userPerformance.filter(s => s.type === 'commission' && s.role !== 'Investor'), 
-    [userPerformance]);
+    const filteredUsersByTab = useMemo(() => {
+        if (activeTab === 'commission') return userPerformance.filter(s => s.type === 'commission' && s.role !== 'Investor');
+        return userPerformance.filter(s => s.type === 'hourly');
+    }, [userPerformance, activeTab]);
 
-    const hourlyUsers = useMemo(() => userPerformance.filter(s => s.type === 'hourly'), [userPerformance]);
+    const totalPages = Math.ceil(filteredUsersByTab.length / itemsPerPage);
+    const paginatedUsers = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return filteredUsersByTab.slice(start, start + itemsPerPage);
+    }, [filteredUsersByTab, currentPage]);
+
     const canManage = hasAccess(currentUser, 'SETTINGS', 'manage_permissions', permissions);
 
     return (
@@ -168,163 +180,142 @@ const Users: React.FC<UsersProps> = ({
                             onClick={() => setActiveTab('commission')} 
                             className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'commission' ? 'bg-white dark:bg-gray-900 text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
-                            Commissioned ({commissionUsers.length})
+                            Commissioned ({userPerformance.filter(s => s.type === 'commission' && s.role !== 'Investor').length})
                         </button>
                         <button 
                             onClick={() => setActiveTab('hourly')} 
                             className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'hourly' ? 'bg-white dark:bg-gray-900 text-primary shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                         >
-                            Hourly ({hourlyUsers.length})
+                            Hourly ({userPerformance.filter(s => s.type === 'hourly').length})
                         </button>
                     </div>
                 </div>
 
                 <div className="min-h-[500px]">
-                    {activeTab === 'commission' ? (
-                        commissionUsers.length > 0 ? (
-                            <>
-                                <div className="table-wrapper hidden md:block">
-                                    <div className="table-container max-h-[600px]">
-                                        <table className="w-full">
-                                            <thead>
-                                                <tr>
-                                                    <th scope="col">Unit Identity</th>
-                                                    <th scope="col" className="text-center">Auth Status</th>
-                                                    <th scope="col" className="text-center">Conversions</th>
-                                                    <th scope="col" className="text-right">Ledger Yield</th>
-                                                    {canManage && <th scope="col" className="text-center">Audit Protocols</th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y">
-                                                {commissionUsers.map(member => (
-                                                    <tr key={member.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                                        <td>
-                                                            <div className="flex items-center gap-4">
-                                                                <img src={member.avatarUrl} alt={member.name} className="w-12 h-12 rounded-2xl object-cover border-4 border-white shadow-sm" />
-                                                                <div>
-                                                                    <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-sm">{member.name}</p>
-                                                                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">{displayRole(member)}</p>
-                                                                </div>
+                    {paginatedUsers.length > 0 ? (
+                        <>
+                            <div className="table-wrapper hidden md:block">
+                                <div className="table-container max-h-[600px]">
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Unit Identity</th>
+                                                <th scope="col" className="text-center">Auth Status</th>
+                                                {activeTab === 'commission' ? (
+                                                    <>
+                                                        <th scope="col" className="text-center">Conversions</th>
+                                                        <th scope="col" className="text-right">Ledger Yield</th>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <th scope="col" className="text-center">Hourly Rate</th>
+                                                        <th scope="col" className="text-center">Accrued Quantum</th>
+                                                        <th scope="col" className="text-right">Settlement Due</th>
+                                                    </>
+                                                )}
+                                                {canManage && <th scope="col" className="text-center">Audit Protocols</th>}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {paginatedUsers.map(member => (
+                                                <tr key={member.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                                    <td>
+                                                        <div className="flex items-center gap-4">
+                                                            <img src={member.avatarUrl} alt={member.name} className="w-12 h-12 rounded-2xl object-cover border-4 border-white shadow-sm" />
+                                                            <div>
+                                                                <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-sm">{member.name}</p>
+                                                                <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">{displayRole(member)}</p>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="text-center"><span className="status-badge status-active">Active</span></td>
+                                                    {activeTab === 'commission' ? (
+                                                        <>
+                                                            <td className="text-center font-black text-slate-900 dark:text-white tabular-nums">{member.salesCount}</td>
+                                                            <td className="table-num text-emerald-600 font-black text-base">{cs}{formatAbbreviatedNumber(member.totalCommission)}</td>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <td className="text-center font-bold text-slate-600 tabular-nums">{cs}{member.hourlyRate}/hr</td>
+                                                            <td className="text-center font-black text-slate-900 dark:text-white tabular-nums">{member.totalHours.toFixed(1)} hrs</td>
+                                                            <td className="table-num text-primary font-black text-base">{cs}{formatAbbreviatedNumber(member.totalHourlyEarnings)}</td>
+                                                        </>
+                                                    )}
+                                                    {canManage && (
+                                                        <td className="text-center">
+                                                            <div className="flex justify-center gap-5">
+                                                                <button onClick={() => { setSelectedUser(member); setIsDetailModalOpen(true); }} className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline">Audit</button>
+                                                                <button onClick={() => handleOpenPermissionModal(member)} className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:underline">Rights</button>
+                                                                <button onClick={() => handleOpenEditModal(member)} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:underline">Edit</button>
                                                             </div>
                                                         </td>
-                                                        <td className="text-center"><span className="status-badge status-active">Active</span></td>
-                                                        <td className="text-center font-black text-slate-900 dark:text-white tabular-nums">{member.salesCount}</td>
-                                                        <td className="table-num text-emerald-600 font-black text-base">{cs}{formatAbbreviatedNumber(member.totalCommission)}</td>
-                                                        {canManage && (
-                                                            <td className="text-center">
-                                                                <div className="flex justify-center gap-5">
-                                                                    <button onClick={() => { setSelectedUser(member); setIsDetailModalOpen(true); }} className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline">Audit</button>
-                                                                    <button onClick={() => handleOpenPermissionModal(member)} className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:underline">Rights</button>
-                                                                    <button onClick={() => handleDeleteClick(member)} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:underline">Revoke</button>
-                                                                </div>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                    )}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <div className="md:hidden space-y-4">
-                                    {commissionUsers.map(member => (
-                                        <div key={member.id} className="bg-slate-50 dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700">
-                                            <div className="flex items-center gap-5 mb-5">
-                                                <img src={member.avatarUrl} className="w-16 h-16 rounded-[1.5rem] object-cover border-4 border-white shadow-md" />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base truncate">{member.name}</p>
-                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{displayRole(member)}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex justify-between items-center py-4 border-y dark:border-gray-700">
-                                                <div className="text-left">
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Yield Balance</p>
-                                                    <p className="text-xl font-black text-emerald-600 tabular-nums">{cs}{formatAbbreviatedNumber(member.totalCommission)}</p>
-                                                </div>
-                                                <div className="text-right"><span className="status-badge status-active">Active</span></div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3 mt-5">
-                                                <button onClick={() => { setSelectedUser(member); setIsDetailModalOpen(true); }} className="py-3 bg-white dark:bg-gray-700 text-slate-900 dark:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-sm">Audit Node</button>
-                                                <button onClick={() => handleOpenPermissionModal(member)} className="py-3 bg-primary text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-primary/10">Authorize</button>
+                            </div>
+                            <div className="md:hidden space-y-4">
+                                {paginatedUsers.map(member => (
+                                    <div key={member.id} className="bg-slate-50 dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700">
+                                        <div className="flex items-center gap-5 mb-5">
+                                            <img src={member.avatarUrl} className="w-16 h-16 rounded-[1.5rem] object-cover border-4 border-white shadow-md" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base truncate">{member.name}</p>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{displayRole(member)}</p>
                                             </div>
                                         </div>
-                                    ))}
+                                        <div className="flex justify-between items-center py-4 border-y dark:border-gray-700">
+                                            <div className="text-left">
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{activeTab === 'commission' ? 'Yield Balance' : 'Settlement Due'}</p>
+                                                <p className="text-xl font-black text-emerald-600 tabular-nums">
+                                                    {cs}{formatAbbreviatedNumber(activeTab === 'commission' ? member.totalCommission : member.totalHourlyEarnings)}
+                                                </p>
+                                            </div>
+                                            <div className="text-right"><span className="status-badge status-active">Active</span></div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3 mt-5">
+                                            <button onClick={() => { setSelectedUser(member); setIsDetailModalOpen(true); }} className="py-3 bg-white dark:bg-gray-700 text-slate-900 dark:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-sm">Audit Node</button>
+                                            <button onClick={() => handleOpenPermissionModal(member)} className="py-3 bg-primary text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-primary/10">Authorize</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
                                 </div>
-                            </>
-                        ) : (
-                             <EmptyState icon={<StaffIcon />} title="No Commissioned Personnel" description="Enroll staff members on the commissioned protocol to track sales yield." />
-                        )
+                            )}
+                        </>
                     ) : (
-                        hourlyUsers.length > 0 ? (
-                            <>
-                                <div className="table-wrapper hidden md:block">
-                                    <div className="table-container max-h-[600px]">
-                                        <table className="w-full">
-                                            <thead>
-                                                <tr>
-                                                    <th scope="col">Unit Identity</th>
-                                                    <th scope="col" className="text-center">Hourly Rate</th>
-                                                    <th scope="col" className="text-center">Accrued Quantum</th>
-                                                    <th scope="col" className="text-right">Settlement Due</th>
-                                                    {canManage && <th scope="col" className="text-center">Audit Protocols</th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y">
-                                                {hourlyUsers.map(member => (
-                                                    <tr key={member.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                                        <td>
-                                                            <div className="flex items-center gap-4">
-                                                                <img src={member.avatarUrl} alt={member.name} className="w-12 h-12 rounded-2xl object-cover border-4 border-white shadow-sm" />
-                                                                <div>
-                                                                    <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-sm">{member.name}</p>
-                                                                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mt-1">{displayRole(member)}</p>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="text-center font-bold text-slate-600 tabular-nums">{cs}{member.hourlyRate}/hr</td>
-                                                        <td className="text-center font-black text-slate-900 dark:text-white tabular-nums">{member.totalHours.toFixed(1)} hrs</td>
-                                                        <td className="table-num text-primary font-black text-base">{cs}{formatAbbreviatedNumber(member.totalHourlyEarnings)}</td>
-                                                        {canManage && (
-                                                            <td className="text-center">
-                                                                <div className="flex justify-center gap-5">
-                                                                    <button onClick={() => { setSelectedUser(member); setIsDetailModalOpen(true); }} className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline">Audit</button>
-                                                                    <button onClick={() => handleOpenPermissionModal(member)} className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:underline">Rights</button>
-                                                                    <button onClick={() => handleOpenEditModal(member)} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:underline">Edit</button>
-                                                                </div>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div className="md:hidden space-y-4">
-                                    {hourlyUsers.map(member => (
-                                        <div key={member.id} className="bg-slate-50 dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700">
-                                            <div className="flex justify-between items-start mb-5">
-                                                <div className="flex items-center gap-4">
-                                                    <img src={member.avatarUrl} className="w-14 h-14 rounded-2xl object-cover border-2 border-white shadow-sm" />
-                                                    <div className="min-w-0">
-                                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate max-w-[120px]">{member.name}</p>
-                                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{displayRole(member)}</p>
-                                                    </div>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-xl font-black text-primary tabular-nums">{cs}{formatAbbreviatedNumber(member.totalHourlyEarnings)}</p>
-                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{member.totalHours.toFixed(1)} Accrued</p>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3 mt-5">
-                                                 <button onClick={() => { setSelectedUser(member); setIsDetailModalOpen(true); }} className="py-3 bg-white dark:bg-gray-700 text-slate-900 dark:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-sm">Audit</button>
-                                                 <button onClick={() => handleOpenPermissionModal(member)} className="py-3 bg-primary text-white rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-primary/10">Authorize</button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        ) : (
-                             <EmptyState icon={<StaffIcon />} title="No Hourly Personnel" description="Enroll staff members on the hourly protocol to track attendance and settlements." />
-                        )
+                        <EmptyState icon={<StaffIcon />} title={`No ${activeTab === 'commission' ? 'Commissioned' : 'Hourly'} Personnel`} description={`Enroll staff members on the ${activeTab} protocol to track yield or attendance.`} />
                     )}
                 </div>
             </div>

@@ -26,6 +26,8 @@ const ExpenseRequestPage: React.FC<ExpenseRequestPageProps> = ({
     t 
 }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
     const cs = receiptSettings.currencySymbol;
 
     const myRequests = useMemo(() => 
@@ -34,6 +36,12 @@ const ExpenseRequestPage: React.FC<ExpenseRequestPageProps> = ({
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [expenseRequests, currentUser?.id]);
     
+    const totalPages = Math.ceil(myRequests.length / itemsPerPage);
+    const paginatedRequests = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return myRequests.slice(start, start + itemsPerPage);
+    }, [myRequests, currentPage]);
+
     const expenseCategories = useMemo(() => {
         const uniqueExistingCategories = [...new Set([...expenses.map(e => e.category), ...expenseRequests.map(r => r.category)])].filter(Boolean);
         const allCategories = [...new Set([...DEFAULT_EXPENSE_CATEGORIES, ...uniqueExistingCategories])];
@@ -91,7 +99,7 @@ const ExpenseRequestPage: React.FC<ExpenseRequestPageProps> = ({
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
-                                            {myRequests.map(req => (
+                                            {paginatedRequests.map(req => (
                                                 <tr key={req.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                                                     <td className="text-slate-500 dark:text-slate-400 tabular-nums text-xs">
                                                         {new Date(req.date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
@@ -120,7 +128,7 @@ const ExpenseRequestPage: React.FC<ExpenseRequestPageProps> = ({
                             </div>
 
                             <div className="md:hidden space-y-4">
-                                {myRequests.map(req => (
+                                {paginatedRequests.map(req => (
                                     <div key={req.id} className="bg-slate-50 dark:bg-gray-800 p-6 rounded-[2rem] shadow-sm border border-slate-100 dark:border-gray-700">
                                         <div className="flex justify-between items-start mb-6">
                                             <div className="space-y-1">
@@ -145,6 +153,37 @@ const ExpenseRequestPage: React.FC<ExpenseRequestPageProps> = ({
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <EmptyState 

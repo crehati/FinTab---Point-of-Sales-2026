@@ -38,14 +38,12 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
     const todayString = today.toISOString().split('T')[0];
     const cs = receiptSettings.currencySymbol;
 
-    // PRESERVED LOGIC: Filter today's finalized sales
     const todaysSales = useMemo(() => 
         (sales || []).filter(sale => 
             sale && sale.date && sale.date.startsWith(todayString) && FINALIZED_SALE_STATUSES.includes(sale.status)
         ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
     [sales, todayString]);
 
-    // PRESERVED LOGIC: Financial totals
     const todaysRevenue = useMemo(() => 
         todaysSales.reduce((sum, sale) => sum + (sale.total || 0), 0),
     [todaysSales]);
@@ -76,7 +74,6 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
         todaysSales.reduce((sum, sale) => sum + (sale.discount || 0), 0),
     [todaysSales]);
 
-    // PRESERVED LOGIC: Velocity calculation
     const topTodaysProducts = useMemo(() => {
         const productQuantities = todaysSales.reduce((acc: Record<string, number>, sale) => {
             (sale.items || []).forEach(item => {
@@ -98,58 +95,36 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
             });
     }, [todaysSales, products]);
 
-    // PRESERVED LOGIC: Category calculation
-    const topTodaysCategory = useMemo(() => {
-        if (todaysSales.length === 0) return null;
-        const categoryQuantities = todaysSales.reduce((acc: Record<string, number>, sale) => {
-            (sale.items || []).forEach(item => {
-                const product = (products || []).find(p => p.id === item.product.id);
-                if (product) {
-                    const category = product.category || 'Uncategorized';
-                    const prev = acc[category] || 0;
-                    acc[category] = prev + item.quantity;
-                }
-            });
-            return acc;
-        }, {} as Record<string, number>);
-
-        const topCategoryEntry = Object.entries(categoryQuantities).sort(([, qtyA], [, qtyB]) => (qtyB as number) - (qtyA as number))[0];
-        return topCategoryEntry ? { name: topCategoryEntry[0], quantity: topCategoryEntry[1] as number } : null;
-    }, [todaysSales, products]);
-
     return (
         <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
-            {/* Real-time Telemetry Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
                 <div>
-                    <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">{t('today.title')}</h1>
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-4">Operational Telemetry Node</p>
+                    <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">{t('today')}</h1>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-4">{t('telemetryNode')}</p>
                 </div>
                 <div className="flex items-center gap-4 bg-slate-100 dark:bg-gray-800 p-2 rounded-2xl border border-slate-200 dark:border-gray-700">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-2"></span>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 pr-3">Live Feed Status: Sync</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 pr-3">{t('liveFeed')}: {t('sync')}</span>
                 </div>
             </div>
 
-            {/* Main KPI Matrix */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-6 px-2">
-                <KPIMetric title="Revenue" value={`${cs}${formatAbbreviatedNumber(todaysRevenue)}`} cs={cs} colorClass="text-emerald-600" trend="Real-time Inflow" />
-                <KPIMetric title="Net Yield" value={`${cs}${formatAbbreviatedNumber(todaysGrossProfit)}`} cs={cs} colorClass="text-primary" trend="After COGS Logic" />
-                <KPIMetric title="Debits" value={`${cs}${formatAbbreviatedNumber(todaysExpenses)}`} cs={cs} colorClass="text-rose-600" trend="Authorized Spend" />
-                <KPIMetric title="Expansion" value={todaysNewCustomers.toString()} cs="" trend="New Identites" />
-                <KPIMetric title="Rebates" value={`${cs}${formatAbbreviatedNumber(todaysDiscounts)}`} cs={cs} colorClass="text-amber-500" trend="Discounts Issued" />
+                <KPIMetric title={t('revenue')} value={`${cs}${formatAbbreviatedNumber(todaysRevenue)}`} cs={cs} colorClass="text-emerald-600" trend="Real-time Inflow" />
+                <KPIMetric title={t('netYield')} value={`${cs}${formatAbbreviatedNumber(todaysGrossProfit)}`} cs={cs} colorClass="text-primary" trend="After COGS Logic" />
+                <KPIMetric title={t('debits')} value={`${cs}${formatAbbreviatedNumber(todaysExpenses)}`} cs={cs} colorClass="text-rose-600" trend="Authorized Spend" />
+                <KPIMetric title={t('expansion')} value={todaysNewCustomers.toString()} cs="" trend="New Identites" />
+                <KPIMetric title={t('rebates')} value={`${cs}${formatAbbreviatedNumber(todaysDiscounts)}`} cs={cs} colorClass="text-amber-500" trend="Discounts Issued" />
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                {/* Real-time Pipeline Table */}
                 <div className="lg:col-span-8">
                     <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 overflow-hidden h-full">
                         <header className="px-10 py-8 border-b dark:border-gray-800 flex justify-between items-center bg-slate-50/50 dark:bg-gray-800/50">
                             <div className="flex items-center gap-4">
                                 <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                                <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Transaction Pipeline</h3>
+                                <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">{t('pipeline')}</h3>
                             </div>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{todaysSales.length} Active Events</span>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{todaysSales.length} {t('activeEvents')}</span>
                         </header>
                         
                         <div className="min-h-[400px]">
@@ -159,8 +134,8 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
                                         <table className="w-full text-sm text-left">
                                             <thead className="bg-slate-50 dark:bg-gray-900 text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
                                                 <tr>
-                                                    <th className="px-10 py-6">Timestamp</th>
-                                                    <th className="px-10 py-6">Identity</th>
+                                                    <th className="px-10 py-6">{t('date')}</th>
+                                                    <th className="px-10 py-6">{t('identity')}</th>
                                                     <th className="px-10 py-6 text-right">Settlement</th>
                                                 </tr>
                                             </thead>
@@ -177,7 +152,7 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
                                                             </td>
                                                             <td className="px-10 py-6 text-right tabular-nums">
                                                                 <span className="text-base font-black text-slate-900 dark:text-white">{formatCurrency(sale.total, cs)}</span>
-                                                                <span className="block text-[8px] font-black text-emerald-500 uppercase tracking-widest mt-1">Authorized</span>
+                                                                <span className="block text-[8px] font-black text-emerald-500 uppercase tracking-widest mt-1">{t('authorize')}</span>
                                                             </td>
                                                         </tr>
                                                     );
@@ -198,13 +173,11 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
                     </div>
                 </div>
 
-                {/* Performance Side-Nodes */}
                 <div className="lg:col-span-4 space-y-10">
-                    {/* Velocity Card */}
                     <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 shadow-xl border border-slate-50 dark:border-gray-800">
                         <div className="flex items-center gap-4 mb-10">
                             <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                            <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Product Velocity</h3>
+                            <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">{t('velocity')}</h3>
                         </div>
                         
                         {topTodaysProducts.length > 0 ? (
@@ -232,34 +205,6 @@ const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, 
                                 compact
                             />
                         )}
-                    </div>
-
-                    {/* Dominance Card */}
-                    <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-150 transition-transform duration-1000"></div>
-                        <div className="relative">
-                            <div className="flex items-center gap-4 mb-12">
-                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Market Dominance</h3>
-                            </div>
-                            
-                            {topTodaysCategory ? (
-                                <div className="text-center py-6">
-                                    <p className="text-4xl font-black tracking-tighter uppercase leading-none">{topTodaysCategory.name}</p>
-                                    <div className="mt-8 pt-8 border-t border-white/10">
-                                        <p className="text-[32px] font-black text-emerald-500 tabular-nums leading-none">{topTodaysCategory.quantity}</p>
-                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-3">Global Units Processed</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <EmptyState 
-                                    icon={<StorefrontIcon />} 
-                                    title="Hierarchy Balanced" 
-                                    description="No class dominance detected."
-                                    compact
-                                />
-                            )}
-                        </div>
                     </div>
                 </div>
             </div>

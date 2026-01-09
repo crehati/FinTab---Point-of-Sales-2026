@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import type { User } from '../types';
 
@@ -64,7 +65,15 @@ const InitiatePaymentModal: React.FC<InitiatePaymentModalProps> = ({ isOpen, onC
         setIsSaving(true);
         const finalDescription = `[${category}] ${description.trim()}`;
         try {
-            await onConfirm(numericAmount, finalDescription, selectedUserId || undefined);
+            // Use try-catch to catch potential errors from onConfirm (e.g. if it's undefined)
+            if (typeof onConfirm === 'function') {
+                await onConfirm(numericAmount, finalDescription, selectedUserId || undefined);
+            } else {
+                console.error("InitiatePaymentModal: onConfirm is not a function.");
+            }
+        } catch (err) {
+            console.error("Submission Error:", err);
+            setError("Protocol Error: Could not synchronize remittance.");
         } finally {
             setIsSaving(false);
         }
@@ -101,6 +110,11 @@ const InitiatePaymentModal: React.FC<InitiatePaymentModalProps> = ({ isOpen, onC
                                 <optgroup label="Operational Staff">
                                     {users.filter(u => u.role !== 'Investor' && u.role !== 'Owner').map(u => (
                                         <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Node Owners">
+                                    {users.filter(u => u.role === 'Owner').map(u => (
+                                        <option key={u.id} value={u.id}>{u.name} (Primary Owner)</option>
                                     ))}
                                 </optgroup>
                             </select>

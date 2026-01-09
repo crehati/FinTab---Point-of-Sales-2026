@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import type { User, ReceiptSettingsData, CustomPayment } from '../types';
 import { PlusIcon } from '../constants';
@@ -23,10 +22,10 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
         ).sort((a, b) => new Date(b.dateInitiated).getTime() - new Date(a.dateInitiated).getTime());
     }, [users]);
 
-    // Fix: Filter using correct status 'approved_by_owner' instead of the undeclared 'approved'.
+    // Fix: Using the correct status 'approved_by_owner' as defined in CustomPayment type.
     const awaitingPayout = useMemo(() => allPayments.filter(p => p.status === 'approved_by_owner'), [allPayments]);
     
-    // Fix: Update history filter to use precise status codes 'pending_owner_approval' and 'approved_by_owner'.
+    // Fix: History should filter out active workflow statuses 'pending_owner_approval' and 'approved_by_owner'.
     const history = useMemo(() => allPayments.filter(p => p.status !== 'pending_owner_approval' && p.status !== 'approved_by_owner'), [allPayments]);
 
     const handleDraftConfirm = (targetUserId: string, amount: number, description: string) => {
@@ -35,7 +34,7 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
     };
 
     const getStatusBadge = (status: CustomPayment['status']) => {
-        // Fix: Update styles mapping keys to match actual CustomPayment status values.
+        // Fix: Mapping keys to actual status values from CustomPayment type definition.
         const styles: Record<CustomPayment['status'], string> = {
             pending_owner_approval: 'bg-yellow-100 text-yellow-800',
             rejected_by_owner: 'bg-red-100 text-red-800',
@@ -43,13 +42,13 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
             completed: 'bg-green-100 text-green-800',
             cancelled_by_user: 'bg-gray-100 text-gray-800',
         };
-        // Fix: Update text mapping keys to match actual CustomPayment status values.
+        // Fix: Display text adjusted for precise terminal status terminology.
         const text: Record<CustomPayment['status'], string> = {
-            pending_owner_approval: 'Pending Owner Approval',
-            rejected_by_owner: 'Rejected by Owner',
-            approved_by_owner: 'Approved by Owner',
-            completed: 'Completed',
-            cancelled_by_user: 'Cancelled by User',
+            pending_owner_approval: 'Review Required',
+            rejected_by_owner: 'Declined',
+            approved_by_owner: 'Authorized',
+            completed: 'Settled',
+            cancelled_by_user: 'Voided',
         };
         return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status]}`}>{text[status]}</span>;
     };
@@ -101,7 +100,7 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
                                 <td className="px-6 py-4 font-semibold">{cs}{payment.amount.toFixed(2)}</td>
                                 <td className="px-6 py-4">{payment.description}</td>
                                 <td className="px-6 py-4 text-center">
-                                    {/* Fix: Use the correct 'approved_by_owner' status check and trigger 'completed' as the target status. */}
+                                    {/* Fix: Workflow step to transition authorized payments to completed status. */}
                                     {payment.status === 'approved_by_owner' ? (
                                         <button onClick={() => handleUpdateCustomPaymentStatus(payment.user.id, payment.id, 'completed')} className="px-3 py-1 text-xs font-semibold text-white bg-primary rounded-md hover:bg-blue-700">
                                             Mark as Paid

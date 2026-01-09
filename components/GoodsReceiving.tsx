@@ -29,6 +29,8 @@ const GoodsReceivingPage: React.FC<GoodsReceivingProps> = ({
 }) => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [reportToShow, setReportToShow] = useState<GoodsReceiving | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
 
     const isOwnerOrAdmin = currentUser?.role === 'Owner' || currentUser?.role === 'Super Admin';
     const workflowRoles = businessSettings?.workflowRoles || {};
@@ -66,6 +68,12 @@ const GoodsReceivingPage: React.FC<GoodsReceivingProps> = ({
         const received = parseFloat(formData.receivedQty) || 0;
         return received - expected;
     }, [formData.expectedQty, formData.receivedQty]);
+
+    const totalPages = Math.ceil((goodsReceivings || []).length / itemsPerPage);
+    const paginatedReceivings = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return (goodsReceivings || []).slice(start, start + itemsPerPage);
+    }, [goodsReceivings, currentPage]);
 
     const handleLinkProduct = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const pId = e.target.value;
@@ -120,6 +128,7 @@ const GoodsReceivingPage: React.FC<GoodsReceivingProps> = ({
         setGoodsReceivings(prev => [newEntry, ...(prev || [])]);
         setIsAddModalOpen(false);
         setFormData({ refNumber: '', productNumber: '', productName: '', expectedQty: '', receivedQty: '', notes: '', linkedProductId: '' });
+        setCurrentPage(1);
 
         // Notify verifiers
         const verifiers = workflowRoles?.receivingVerifier?.map(a => a.userId) || [];
@@ -270,79 +279,112 @@ const GoodsReceivingPage: React.FC<GoodsReceivingProps> = ({
             <Card title="Receiving Audit Ledger">
                 <div className="overflow-x-auto -mx-6 px-6 min-h-[400px]">
                     {(goodsReceivings || []).length > 0 ? (
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 dark:bg-gray-900 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">
-                                <tr>
-                                    <th className="px-6 py-6 rounded-tl-3xl">Entry Date</th>
-                                    <th className="px-6 py-6">Ref / Product</th>
-                                    <th className="px-6 py-6 text-center">Expected</th>
-                                    <th className="px-6 py-6 text-center">Received</th>
-                                    <th className="px-6 py-6 text-center">Status</th>
-                                    <th className="px-6 py-6 text-center rounded-tr-3xl">Workflow Progress</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
-                                {goodsReceivings.map(entry => (
-                                    <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/50 transition-colors">
-                                        <td className="px-6 py-6 font-bold text-slate-500 uppercase tabular-nums">{new Date(entry.date).toLocaleDateString()}</td>
-                                        <td className="px-6 py-6">
-                                            <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter truncate max-w-[150px]">{entry.productName}</p>
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Ref: {entry.refNumber}</p>
-                                        </td>
-                                        <td className="px-6 py-6 text-center font-bold text-slate-400 tabular-nums">{entry.expectedQty}</td>
-                                        <td className="px-6 py-6 text-center font-black text-slate-900 dark:text-white tabular-nums text-lg">{entry.receivedQty}</td>
-                                        <td className="px-6 py-6 text-center">
-                                            {getStatusBadge(entry.status)}
-                                        </td>
-                                        <td className="px-6 py-6">
-                                            <div className="flex flex-col items-center gap-3">
-                                                {entry.status === 'first_signed' && entry.signatures?.first?.userId !== currentUser?.id && (
-                                                    <button 
-                                                        onClick={() => handleSecondSign(entry)}
-                                                        className="px-6 py-2 bg-primary text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-all disabled:opacity-30"
-                                                        disabled={!canVerifyReceiving}
-                                                    >
-                                                        Sign Verification (Step 2)
-                                                    </button>
-                                                )}
-                                                {entry.status === 'second_signed' && canApproveReceiving && (
-                                                    <div className="flex gap-2">
-                                                        <button 
-                                                            onClick={() => handleOwnerAudit(entry, 'accepted')}
-                                                            className="px-5 py-2 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
-                                                        >
-                                                            Final Approve
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleOwnerAudit(entry, 'rejected')}
-                                                            className="px-5 py-2 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
-                                                        >
-                                                            Flag Error
-                                                        </button>
-                                                    </div>
-                                                )}
-                                                {(entry.status === 'accepted' || entry.status === 'rejected') && (
-                                                    <button 
-                                                        onClick={() => setReportToShow(entry)}
-                                                        className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-black transition-all flex items-center gap-2 group"
-                                                    >
-                                                        <FilePdfIcon className="w-5 h-5" />
-                                                        <span className="text-[8px] font-black uppercase tracking-widest hidden group-hover:block animate-fade-in">Report PDF</span>
-                                                    </button>
-                                                )}
-                                                <div className="flex gap-2 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-                                                    <span className={entry.signatures?.first ? 'text-emerald-500' : ''}>1. Clerk</span>
-                                                    <span>|</span>
-                                                    <span className={entry.signatures?.second ? 'text-emerald-500' : ''}>2. Verify</span>
-                                                    <span>|</span>
-                                                    <span className={entry.status === 'accepted' ? 'text-emerald-500' : ''}>3. Approve</span>
-                                                </div>
-                                            </div>
-                                        </td>
+                        <>
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 dark:bg-gray-900 text-[10px] font-bold uppercase tracking-[0.25em] text-slate-400">
+                                    <tr>
+                                        <th className="px-6 py-6 rounded-tl-3xl">Entry Date</th>
+                                        <th className="px-6 py-6">Ref / Product</th>
+                                        <th className="px-6 py-6 text-center">Expected</th>
+                                        <th className="px-6 py-6 text-center">Received</th>
+                                        <th className="px-6 py-6 text-center">Status</th>
+                                        <th className="px-6 py-6 text-center rounded-tr-3xl">Workflow Progress</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
+                                    {paginatedReceivings.map(entry => (
+                                        <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                                            <td className="px-6 py-6 font-bold text-slate-500 uppercase tabular-nums">{new Date(entry.date).toLocaleDateString()}</td>
+                                            <td className="px-6 py-6">
+                                                <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter truncate max-w-[150px]">{entry.productName}</p>
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Ref: {entry.refNumber}</p>
+                                            </td>
+                                            <td className="px-6 py-6 text-center font-bold text-slate-400 tabular-nums">{entry.expectedQty}</td>
+                                            <td className="px-6 py-6 text-center font-black text-slate-900 dark:text-white tabular-nums text-lg">{entry.receivedQty}</td>
+                                            <td className="px-6 py-6 text-center">
+                                                {getStatusBadge(entry.status)}
+                                            </td>
+                                            <td className="px-6 py-6">
+                                                <div className="flex flex-col items-center gap-3">
+                                                    {entry.status === 'first_signed' && entry.signatures?.first?.userId !== currentUser?.id && (
+                                                        <button 
+                                                            onClick={() => handleSecondSign(entry)}
+                                                            className="px-6 py-2 bg-primary text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-all disabled:opacity-30"
+                                                            disabled={!canVerifyReceiving}
+                                                        >
+                                                            Sign Verification (Step 2)
+                                                        </button>
+                                                    )}
+                                                    {entry.status === 'second_signed' && canApproveReceiving && (
+                                                        <div className="flex gap-2">
+                                                            <button 
+                                                                onClick={() => handleOwnerAudit(entry, 'accepted')}
+                                                                className="px-5 py-2 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
+                                                            >
+                                                                Final Approve
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleOwnerAudit(entry, 'rejected')}
+                                                                className="px-5 py-2 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all"
+                                                            >
+                                                                Flag Error
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {(entry.status === 'accepted' || entry.status === 'rejected') && (
+                                                        <button 
+                                                            onClick={() => setReportToShow(entry)}
+                                                            className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-black transition-all flex items-center gap-2 group"
+                                                        >
+                                                            <FilePdfIcon className="w-5 h-5" />
+                                                            <span className="text-[8px] font-black uppercase tracking-widest hidden group-hover:block animate-fade-in">Report PDF</span>
+                                                        </button>
+                                                    )}
+                                                    <div className="flex gap-2 text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+                                                        <span className={entry.signatures?.first ? 'text-emerald-500' : ''}>1. Clerk</span>
+                                                        <span>|</span>
+                                                        <span className={entry.signatures?.second ? 'text-emerald-500' : ''}>2. Verify</span>
+                                                        <span>|</span>
+                                                        <span className={entry.status === 'accepted' ? 'text-emerald-500' : ''}>3. Approve</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
+                        </>
                     ) : (
                         <EmptyState 
                             icon={<TruckIcon />} 
@@ -392,7 +434,7 @@ const GoodsReceivingPage: React.FC<GoodsReceivingProps> = ({
                             <input type="text" value={formData.productName} onChange={e => setFormData({...formData, productName: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none" placeholder="Enter name..." />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                             <div>
                                 <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 px-1 mb-2 block">Expected Qty *</label>
                                 <input type="number" value={formData.expectedQty} onChange={e => setFormData({...formData, expectedQty: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none tabular-nums" placeholder="0" />
@@ -401,13 +443,10 @@ const GoodsReceivingPage: React.FC<GoodsReceivingProps> = ({
                                 <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 px-1 mb-2 block">Received Qty *</label>
                                 <input type="number" value={formData.receivedQty} onChange={e => setFormData({...formData, receivedQty: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none tabular-nums" placeholder="0" />
                             </div>
-                        </div>
-
-                        <div className={`p-6 rounded-[2rem] border transition-all ${difference === 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-rose-50 border-rose-100 text-rose-600'}`}>
-                            <p className="text-[10px] font-bold uppercase tracking-widest mb-1">Arrival Variance</p>
-                            <p className="text-xl font-black tabular-nums">
-                                {difference > 0 ? 'Over: +' : difference < 0 ? 'Short: ' : 'Perfect Match: '}{Math.abs(difference)} units
-                            </p>
+                            <div className={`p-4 rounded-2xl border flex flex-col justify-center items-center transition-all ${difference === 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-rose-50 border-rose-100 text-rose-600'}`}>
+                                <p className="text-[8px] font-black uppercase tracking-widest mb-1">Var</p>
+                                <p className="text-sm font-black tabular-nums">{difference > 0 ? '+' : ''}{difference}</p>
+                            </div>
                         </div>
                     </div>
                 </div>

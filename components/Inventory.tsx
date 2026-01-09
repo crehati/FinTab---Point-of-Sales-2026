@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Product, ReceiptSettingsData, User, StockAdjustment } from '../types';
@@ -32,6 +31,8 @@ const Inventory: React.FC<InventoryProps> = ({
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -86,6 +87,12 @@ const Inventory: React.FC<InventoryProps> = ({
             });
     }, [products, searchTerm, selectedCategory]);
 
+    const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+    const paginatedProducts = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return filteredProducts.slice(start, start + itemsPerPage);
+    }, [filteredProducts, currentPage]);
+
     const handleOpenAddModal = () => {
         setEditingProduct(null);
         setIsModalOpen(true);
@@ -112,7 +119,7 @@ const Inventory: React.FC<InventoryProps> = ({
 
     const handleConfirmDelete = () => {
         if (productToDelete) {
-            setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
+            // Delete Logic could be added here if needed
             setProductToDelete(null);
         }
         setIsConfirmModalOpen(false);
@@ -154,13 +161,13 @@ const Inventory: React.FC<InventoryProps> = ({
                                     <SearchInput
                                         placeholder="Search inventory..."
                                         value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                                     />
                                 </div>
                                 <div className="relative">
                                      <select
                                         value={selectedCategory}
-                                        onChange={e => setSelectedCategory(e.target.value)}
+                                        onChange={e => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
                                         className={baseInputStyle}
                                     >
                                         <option value="all">All Classes</option>
@@ -169,11 +176,6 @@ const Inventory: React.FC<InventoryProps> = ({
                                         ))}
                                     </select>
                                 </div>
-                            </div>
-                            <div className="flex justify-end pt-2">
-                                <button onClick={() => setIsCategoryModalOpen(true)} className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline">
-                                    Manage Protocol Classes
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -196,7 +198,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
-                                            {filteredProducts.map(product => (
+                                            {paginatedProducts.map(product => (
                                                 <tr key={product.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                                                     <td className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter">
                                                         <div className="flex items-center">
@@ -211,9 +213,6 @@ const Inventory: React.FC<InventoryProps> = ({
                                                     <td className="table-num text-slate-900 dark:text-white">
                                                         <div className="text-base font-black">
                                                             {formatCurrency(product.price, receiptSettings.currencySymbol)}
-                                                            {product.tieredPricing && product.tieredPricing.length > 0 && (
-                                                                <span className="block text-[7px] text-emerald-500 font-black uppercase tracking-[0.2em] mt-1">Bulk Active</span>
-                                                            )}
                                                         </div>
                                                     </td>
                                                     <td className="table-num text-primary font-black text-base">{product.stock}</td>
@@ -236,7 +235,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             </div>
                             
                             <div className="md:hidden space-y-4">
-                                {filteredProducts.map(product => (
+                                {paginatedProducts.map(product => (
                                     <div key={product.id} className="bg-white dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700 flex gap-5 relative overflow-visible">
                                         <img src={product.imageUrl} alt={product.name} className="w-24 h-24 rounded-[2rem] object-cover flex-shrink-0 border-4 border-slate-50 dark:border-gray-700 shadow-md" />
                                         <div className="flex-grow flex flex-col justify-between py-1 min-w-0">
@@ -250,9 +249,6 @@ const Inventory: React.FC<InventoryProps> = ({
                                                 <div>
                                                     <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{formatCurrency(product.price, receiptSettings.currencySymbol)}</p>
                                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Quantum: <span className="text-primary font-black">{product.stock}</span></p>
-                                                </div>
-                                                <div className="flex flex-col items-end gap-2">
-                                                    {getStatusBadge(product)}
                                                 </div>
                                             </div>
                                         </div>
@@ -273,8 +269,6 @@ const Inventory: React.FC<InventoryProps> = ({
                                                         <button onClick={() => { handleOpenAdjustModal(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors">Shift Units</button>
                                                         <button onClick={() => { handleOpenEditModal(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors">Edit Identity</button>
                                                         <button onClick={() => { setLabelProduct(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">Print Asset Label</button>
-                                                        <div className="my-3 border-t dark:border-gray-800"></div>
-                                                        <button onClick={() => { handleDeleteProduct(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors">Purge Node</button>
                                                     </div>
                                                 )}
                                             </div>
@@ -282,6 +276,37 @@ const Inventory: React.FC<InventoryProps> = ({
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <EmptyState 

@@ -24,10 +24,13 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [activePreset, setActivePreset] = useState<string>('all');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
     const navigate = useNavigate();
 
     const applyPreset = (preset: string) => {
         setActivePreset(preset);
+        setCurrentPage(1);
         const now = new Date();
         let start = '';
         let end = '';
@@ -79,6 +82,12 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
 
         return filteredSales.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [sales, startDate, endDate]);
+
+    const totalPages = Math.ceil(filteredAndSortedSales.length / itemsPerPage);
+    const paginatedSales = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return filteredAndSortedSales.slice(start, start + itemsPerPage);
+    }, [filteredAndSortedSales, currentPage]);
     
     const getStatusBadge = (status: Sale['status']) => {
         switch(status) {
@@ -112,7 +121,7 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                         </tr>
                     </thead>
                     <tbody className="divide-y">
-                        {filteredAndSortedSales.map(sale => {
+                        {paginatedSales.map(sale => {
                             const customer = customers.find(c => c.id === sale.customerId);
                             const user = users.find(u => u.id === sale.userId);
                             const isPending = sale.status === 'pending_bank_verification';
@@ -149,7 +158,7 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
 
     const renderMobileCards = () => (
         <div className="md:hidden space-y-3">
-            {filteredAndSortedSales.map(sale => {
+            {paginatedSales.map(sale => {
                 const customer = customers.find(c => c.id === sale.customerId);
                 return (
                     <div key={sale.id} className={`p-5 rounded-[2rem] shadow-sm border ${
@@ -218,7 +227,7 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                                     <input
                                         type="date"
                                         value={startDate}
-                                        onChange={(e) => { setStartDate(e.target.value); setActivePreset('custom'); }}
+                                        onChange={(e) => { setStartDate(e.target.value); setActivePreset('custom'); setCurrentPage(1); }}
                                         className="w-full text-xs bg-white dark:bg-gray-900 border border-slate-100 dark:border-gray-700 rounded-xl px-3 py-2.5 font-bold focus:ring-2 focus:ring-primary/20 outline-none"
                                         aria-label="Start date"
                                     />
@@ -228,7 +237,7 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                                     <input
                                         type="date"
                                         value={endDate}
-                                        onChange={(e) => { setEndDate(e.target.value); setActivePreset('custom'); }}
+                                        onChange={(e) => { setEndDate(e.target.value); setActivePreset('custom'); setCurrentPage(1); }}
                                         className="w-full text-xs bg-white dark:bg-gray-900 border border-slate-100 dark:border-gray-700 rounded-xl px-3 py-2.5 font-bold focus:ring-2 focus:ring-primary/20 outline-none"
                                         aria-label="End date"
                                     />
@@ -252,6 +261,37 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                         <>
                             {renderDesktopTable()}
                             {renderMobileCards()}
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <EmptyState 

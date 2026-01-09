@@ -26,6 +26,8 @@ const Customers: React.FC<CustomersProps> = ({
     const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
     const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
     const actionMenuRef = useRef<HTMLDivElement>(null);
     
@@ -49,6 +51,12 @@ const Customers: React.FC<CustomersProps> = ({
             .filter(c => c.name.toLowerCase().includes(lower) || c.email.toLowerCase().includes(lower) || c.phone.includes(searchTerm))
             .sort((a, b) => getTotalSpent(b) - getTotalSpent(a));
     }, [customers, searchTerm]);
+
+    const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
+    const paginatedCustomers = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return filteredCustomers.slice(start, start + itemsPerPage);
+    }, [filteredCustomers, currentPage]);
 
     const metrics = useMemo(() => {
         const now = new Date();
@@ -101,7 +109,7 @@ const Customers: React.FC<CustomersProps> = ({
                     <SearchInput
                         placeholder="Protocol Search: Name, email, or phone..."
                         value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     />
                 </div>
 
@@ -121,7 +129,7 @@ const Customers: React.FC<CustomersProps> = ({
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
-                                            {filteredCustomers.map(customer => (
+                                            {paginatedCustomers.map(customer => (
                                                 <tr key={customer.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                                                     <td className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-sm">{customer.name}</td>
                                                     <td className="text-slate-500 font-bold uppercase text-[9px] tracking-widest">
@@ -142,7 +150,7 @@ const Customers: React.FC<CustomersProps> = ({
                                 </div>
                             </div>
                             <div className="md:hidden space-y-4">
-                                {filteredCustomers.map(customer => (
+                                {paginatedCustomers.map(customer => (
                                     <div key={customer.id} className="bg-white dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700 relative">
                                         <div className="pr-12">
                                             <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base truncate">{customer.name}</p>
@@ -171,6 +179,37 @@ const Customers: React.FC<CustomersProps> = ({
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="mt-8 flex justify-center items-center gap-2">
+                                    <button 
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Prev
+                                    </button>
+                                    <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
+                                        {Array.from({ length: totalPages }).map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setCurrentPage(i + 1)}
+                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
+                                            >
+                                                {i + 1}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button 
+                                        disabled={currentPage === totalPages}
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <EmptyState 

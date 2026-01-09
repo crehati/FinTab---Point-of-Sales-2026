@@ -18,10 +18,10 @@ export interface BankTransaction extends Syncable {
     id: string;
     date: string;
     bankAccountId: string;
-    type: 'deposit' | 'withdrawal' | 'transfer_in' | 'transfer_out' | 'sale_credit';
+    type: 'deposit' | 'withdrawal' | 'transfer_in' | 'transfer_out' | 'sale_credit' | 'expense_payout';
     amount: number;
     description: string;
-    referenceId?: string; // Sale ID or Transfer ID
+    referenceId?: string; // Sale ID, Transfer ID, or Expense ID
     userId: string;
 }
 
@@ -186,6 +186,8 @@ export interface Withdrawal {
     notes?: string;
     auditLog: AuditEntry[];
     approvalReference?: string;
+    fundingSource?: 'cash' | 'bank';
+    bankAccountId?: string;
 }
 
 export interface CustomPayment {
@@ -198,6 +200,8 @@ export interface CustomPayment {
     notes?: string;
     auditLog: AuditEntry[];
     approvalReference?: string;
+    fundingSource?: 'cash' | 'bank';
+    bankAccountId?: string;
 }
 
 export type Deposit = Syncable & {
@@ -208,6 +212,8 @@ export type Deposit = Syncable & {
     userId: string;
     status: 'pending' | 'approved' | 'rejected';
     bankAccountId?: string;
+    type?: 'deposit' | 'payout';
+    relatedRequestId?: string; // Links back to ExpenseRequest, Withdrawal, or CustomPayment
 }
 
 export type Role = 'Owner' | 'Admin' | 'Manager' | 'Staff' | 'Investor' | 'Custom' | 'Cashier' | 'SellerAgent' | 'BankVerifier' | 'Super Admin';
@@ -292,6 +298,8 @@ export type Expense = Syncable & {
   amount: number;
   status?: 'active' | 'deleted';
   requestId?: string;
+  paymentSource?: 'cash' | 'bank';
+  bankAccountId?: string;
 }
 
 export type ExpenseRequest = Syncable & {
@@ -307,6 +315,8 @@ export type ExpenseRequest = Syncable & {
   status: 'pending' | 'approved' | 'rejected';
   rejectionReason?: string;
   auditLog?: AuditEntry[];
+  fundingSource?: 'cash' | 'bank';
+  bankAccountId?: string;
 }
 
 export interface CashCountSignature {

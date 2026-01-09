@@ -1,0 +1,1 @@
+// Firebase fully removed. Supabase is the sole backend.

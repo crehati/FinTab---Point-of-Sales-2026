@@ -30,7 +30,7 @@ class WidgetErrorBoundary extends React.Component<{ children: React.ReactNode },
     }
 }
 
-const AISuggestions: React.FC<{ stats: any }> = ({ stats }) => {
+const AISuggestions: React.FC<{ stats: any; t: any }> = ({ stats, t }) => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -105,7 +105,7 @@ const AISuggestions: React.FC<{ stats: any }> = ({ stats }) => {
 
 const KPIMetric: React.FC<{ title: string; value: number | string; cs: string; colorClass?: string; caption?: string }> = ({ title, value, cs, colorClass = "text-slate-900 dark:text-white", caption }) => (
     <div 
-        className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-50 dark:border-gray-800 flex flex-col justify-between h-full group hover:shadow-xl transition-all cursor-help"
+        className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col justify-between h-full group hover:shadow-xl transition-all cursor-help"
         title={typeof value === 'number' ? formatCurrency(value, cs) : value}
     >
         <div>
@@ -290,7 +290,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
     return (
         <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
             {/* Header / Identity Hub */}
-            <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden border border-white/5">
+            <div className="bg-slate-900 rounded-[3.5rem] p-10 text-white shadow-2xl relative overflow-hidden border border-white/5">
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/20 rounded-full -mr-48 -mt-48 blur-[120px]"></div>
                 <div className="relative flex flex-col md:flex-row justify-between items-center gap-10">
                     <div className="flex items-center gap-10">
@@ -298,20 +298,20 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                             <AIIcon className="w-10 h-10 text-primary" />
                         </div>
                         <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter leading-none">Terminal Auth: {currentUser?.name?.split(' ')[0]}</h2>
-                            <p className="text-slate-500 font-bold uppercase tracking-[0.4em] text-[10px] mt-4">{currentUser?.role} Node Operational</p>
+                            <h2 className="text-4xl font-black uppercase tracking-tighter leading-none">{t('authNode')}: {currentUser?.name?.split(' ')[0]}</h2>
+                            <p className="text-slate-500 font-bold uppercase tracking-[0.4em] text-[10px] mt-4">{currentUser?.role} {t('nodeOperational')}</p>
                         </div>
                     </div>
                     {(isOwner || isInvestor) && (
                         <div className="bg-white/5 backdrop-blur-md p-2 rounded-[2.5rem] border border-white/10 flex">
                             <div className="px-8 py-5 text-center border-r border-white/5" title={formatCurrency(currentUser?.initialInvestment || 0, cs)}>
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Capital Stake</p>
+                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">{t('capitalStake')}</p>
                                 <p className="text-2xl font-black text-primary tabular-nums tracking-tight">
                                     {isOwner ? ownerEquity?.share : investorEquity?.share}%
                                 </p>
                             </div>
                             <div className="px-8 py-5 text-center" title={formatCurrency(isOwner ? ownerEquity?.available : investorEquity?.available, cs)}>
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Available Yield</p>
+                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">{t('availableYield')}</p>
                                 <p className="text-2xl font-black text-emerald-500 tabular-nums tracking-tight">
                                     {cs}{formatAbbreviatedNumber(isOwner ? ownerEquity?.available : investorEquity?.available)}
                                 </p>
@@ -321,61 +321,21 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                 </div>
             </div>
 
-            {/* Investor Equity Hub */}
-            {isInvestor && investorEquity && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
-                    <div 
-                        className="bg-slate-900 text-white p-10 rounded-[3rem] shadow-2xl relative overflow-hidden flex flex-col justify-between cursor-help border border-white/5"
-                        title={formatCurrency(investorEquity.investment, cs)}
-                    >
-                        <div className="absolute top-0 right-0 w-40 h-40 bg-primary/20 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Capital Stake</p>
-                            <p className="text-4xl font-black tabular-nums tracking-tighter">{cs}{formatAbbreviatedNumber(investorEquity.investment)}</p>
-                        </div>
-                        <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center">
-                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{investorEquity.share}% Ownership</p>
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        </div>
-                    </div>
-                    <div 
-                        className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 flex flex-col justify-between cursor-help"
-                        title={formatCurrency(investorEquity.earned, cs)}
-                    >
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Realized Return</p>
-                            <p className="text-4xl font-black text-emerald-600 tabular-nums tracking-tighter">{cs}{formatAbbreviatedNumber(investorEquity.earned)}</p>
-                        </div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-8">Accrued Dividend Inflow</p>
-                    </div>
-                    <div 
-                        className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 flex flex-col justify-between cursor-help"
-                        title={formatCurrency(investorEquity.available, cs)}
-                    >
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Pending Liquidation</p>
-                            <p className="text-4xl font-black text-primary tabular-nums tracking-tighter">{cs}{formatAbbreviatedNumber(investorEquity.available)}</p>
-                        </div>
-                        <NavLink to="/profile" className="mt-8 py-4 bg-primary text-white text-center rounded-2xl text-[9px] font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:opacity-90 active:scale-[0.98] transition-all">Initiate Payout Protocol →</NavLink>
-                    </div>
-                </div>
-            )}
-
             {/* Privileged Logic Grid (Treasury & Health) */}
             {isPrivileged && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <KPIMetric title="Platform Revenue" value={stats.totalRevenue} cs={cs} caption="Verified Realized Inflow" />
-                    <KPIMetric title="Gross Profit" value={stats.lifetimeGrossProfit} cs={cs} colorClass="text-emerald-600" caption="Yield After COGS Deductions" />
-                    <KPIMetric title="Debit Exposure" value={stats.totalExpVal} cs={cs} colorClass="text-rose-600" caption={`${expenses?.length || 0} Authorized Entries`} />
+                    <KPIMetric title={t('platformRevenue')} value={stats.totalRevenue} cs={cs} caption="Verified Realized Inflow" />
+                    <KPIMetric title={t('grossProfit')} value={stats.lifetimeGrossProfit} cs={cs} colorClass="text-emerald-600" caption="Yield After COGS Deductions" />
+                    <KPIMetric title={t('debitExposure')} value={stats.totalExpVal} cs={cs} colorClass="text-rose-600" caption={`${expenses?.length || 0} Authorized Entries`} />
                     <div 
                         className="bg-primary text-white p-8 rounded-[3rem] shadow-2xl shadow-primary/30 flex flex-col justify-between cursor-help group transition-all hover:-translate-y-1"
                         title={formatCurrency(stats.netProfit, cs)}
                     >
                         <div>
-                            <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-4">Net Treasury Balance</p>
+                            <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-4">{t('netTreasury')}</p>
                             <p className="text-4xl font-black tabular-nums tracking-tighter">{cs}{formatAbbreviatedNumber(stats.netProfit)}</p>
                         </div>
-                        <NavLink to="/reports" className="text-[9px] font-black text-white uppercase tracking-[0.3em] hover:underline mt-8 opacity-60 group-hover:opacity-100 transition-opacity">Financial Node Reports →</NavLink>
+                        <NavLink to="/reports" className="text-[9px] font-black text-white uppercase tracking-[0.3em] hover:underline mt-8 opacity-60 group-hover:opacity-100 transition-opacity">{t('reports')} →</NavLink>
                     </div>
                 </div>
             )}
@@ -391,9 +351,9 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                                     <div className="bg-primary p-6 rounded-[2rem] shadow-xl group-hover:rotate-12 transition-transform duration-500">
                                         <PlusIcon className="w-12 h-12" />
                                     </div>
-                                    <h3 className="text-5xl font-black uppercase tracking-tighter leading-none">New Sale</h3>
+                                    <h3 className="text-5xl font-black uppercase tracking-tighter leading-none">{t('newSale')}</h3>
                                 </div>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.4em] ml-1">Launch Terminal Authorization Interface</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.4em] ml-1">{t('launchTerminal')}</p>
                             </div>
                             <div className="absolute bottom-12 right-12 opacity-10 group-hover:opacity-100 transition-opacity">
                                 <CounterIcon className="w-24 h-24 text-white" />
@@ -410,9 +370,9 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                          <header className="px-10 py-8 border-b dark:border-gray-800 flex justify-between items-center bg-slate-50/30 dark:bg-gray-800/30">
                             <div className="flex items-center gap-4">
                                 <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></div>
-                                <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Central Verification Hub</h3>
+                                <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">{t('verificationHub')}</h3>
                             </div>
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Active Operations Center</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t('activeOps')}</span>
                         </header>
                         <div className="p-4 md:p-8">
                             <RequestsDashboard 
@@ -441,25 +401,6 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                             />
                         </WidgetErrorBoundary>
                     )}
-                    {assignedTasks.length > 0 && (
-                        <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 p-10 animate-fade-in">
-                            <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white mb-10 flex items-center gap-3">
-                                <div className="w-1 h-4 bg-primary rounded-full"></div>
-                                Verification Queue
-                            </h3>
-                            <div className="space-y-4">
-                                {assignedTasks.map(task => (
-                                    <NavLink key={task} to={`/${task.includes('cash') ? 'cash-count' : task.includes('stock') ? 'weekly-inventory-check' : 'goods-receiving'}`} className="flex items-center justify-between p-6 bg-slate-50 dark:bg-gray-800 rounded-3xl hover:shadow-xl transition-all text-left border border-transparent hover:border-primary/20 group active:scale-[0.98]">
-                                        <div className="min-w-0">
-                                            <span className="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors block truncate">{task.replace(/([A-Z])/g, ' $1')}</span>
-                                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Pending Entry</span>
-                                        </div>
-                                        <span className="text-[8px] font-black text-primary uppercase bg-primary/10 px-3 py-1.5 rounded-xl border border-primary/20 flex-shrink-0">Authorized</span>
-                                    </NavLink>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
 
@@ -467,19 +408,19 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-2">
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-50 dark:border-gray-800 flex flex-col md:flex-row items-center md:items-center group hover:shadow-xl transition-all text-center md:text-left gap-6">
                     <div className="p-5 bg-slate-50 dark:bg-gray-800 text-primary rounded-3xl transition-colors group-hover:bg-primary group-hover:text-white"><CustomersIcon className="w-7 h-7" /></div>
-                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Identity Ledger</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{customers?.length || 0}</p></div>
+                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{t('identityLedger')}</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{customers?.length || 0}</p></div>
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col md:flex-row items-center md:items-center group hover:shadow-xl transition-all text-center md:text-left gap-6">
                     <div className="p-5 bg-slate-50 dark:bg-gray-800 text-primary rounded-3xl transition-colors group-hover:bg-primary group-hover:text-white"><StaffIcon className="w-7 h-7" /></div>
-                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Personnel Units</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{users?.length || 0}</p></div>
+                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{t('personnelUnits')}</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{users?.length || 0}</p></div>
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-50 dark:border-gray-800 flex flex-col md:flex-row items-center md:items-center group hover:shadow-xl transition-all text-center md:text-left gap-6" title={formatCurrency(todaysSalesSummary.revenue, cs)}>
                     <div className="p-5 bg-slate-50 dark:bg-gray-800 text-emerald-500 rounded-3xl transition-colors group-hover:bg-emerald-500 group-hover:text-white"><ReportsIcon className="w-7 h-7" /></div>
-                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Daily Syncs</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{todaysSalesSummary.count}</p></div>
+                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{t('dailySyncs')}</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{todaysSalesSummary.count}</p></div>
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-50 dark:border-gray-800 flex flex-col md:flex-row items-center md:items-center group hover:shadow-xl transition-all text-center md:text-left gap-6">
                     <div className="p-5 bg-slate-50 dark:bg-gray-800 text-amber-500 rounded-3xl transition-colors group-hover:bg-amber-500 group-hover:text-white"><InventoryIcon className="w-7 h-7" /></div>
-                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Global Quantum</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{products?.reduce((s, p) => s + (p?.stock || 0), 0) || 0}</p></div>
+                    <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{t('globalQuantum')}</p><p className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tighter tabular-nums mt-1 leading-none">{products?.reduce((s, p) => s + (p?.stock || 0), 0) || 0}</p></div>
                 </div>
             </div>
 
@@ -489,143 +430,14 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                     <div className="flex items-center gap-6 px-4">
                         <div className="bg-slate-900 text-white p-5 rounded-[2rem] shadow-xl"><ReportsIcon className="w-10 h-10" /></div>
                         <div>
-                            <h2 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Corporate Intelligence</h2>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-3">Advanced Analytical Matrix</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                        <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 overflow-hidden">
-                            <header className="px-10 py-8 border-b dark:border-gray-800 flex justify-between items-center bg-slate-50/30 dark:bg-gray-800/30">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                    <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Velocity Leaderboard</h3>
-                                </div>
-                            </header>
-                            <div className="table-wrapper border-none rounded-none">
-                                <table className="w-full text-[11px] text-left">
-                                    <thead className="bg-slate-50 dark:bg-gray-900 text-[9px] font-black uppercase tracking-widest text-slate-400">
-                                        <tr>
-                                            <th className="px-10 py-6">Protocol ID</th>
-                                            <th className="px-10 py-6 text-center">Velocity</th>
-                                            <th className="px-10 py-6 text-right">In Stock</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
-                                        {(stats.bestSellers || []).map((p, i) => (
-                                            <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/50 transition-colors group">
-                                                <td className="px-10 py-6 font-black text-slate-900 dark:text-white uppercase truncate max-w-[200px]"><span className="text-slate-300 dark:text-slate-600 mr-3 group-hover:text-primary transition-colors">{(i+1).toString().padStart(2, '0')}</span>{p.name}</td>
-                                                <td className="px-10 py-6 text-center font-black text-primary tabular-nums text-lg">{p.unitsSold}</td>
-                                                <td className="px-10 py-6 text-right font-bold text-slate-400 uppercase tabular-nums">{p.stock} Units</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 overflow-hidden">
-                            <header className="px-10 py-8 border-b dark:border-gray-800 flex justify-between items-center bg-slate-50/30 dark:bg-gray-800/30">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>
-                                    <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Idle Asset Risk Audit</h3>
-                                </div>
-                            </header>
-                            <div className="table-wrapper border-none rounded-none">
-                                <table className="w-full text-[11px] text-left">
-                                    <thead className="bg-slate-50 dark:bg-gray-900 text-[9px] font-black uppercase tracking-widest text-slate-400">
-                                        <tr>
-                                            <th className="px-10 py-6">Protocol ID</th>
-                                            <th className="px-10 py-6 text-center">Velocity</th>
-                                            <th className="px-10 py-6 text-right">Burn Value</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
-                                        {(stats.leastSellers || []).map((p, i) => (
-                                            <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/50 transition-colors group" title={formatCurrency(p.stock * p.costPrice, cs)}>
-                                                <td className="px-10 py-6 font-black text-slate-900 dark:text-white uppercase truncate max-w-[200px]"><span className="text-slate-300 dark:text-slate-600 mr-3 group-hover:text-rose-500 transition-colors">{(i+1).toString().padStart(2, '0')}</span>{p.name}</td>
-                                                <td className="px-10 py-6 text-center font-black text-rose-400 tabular-nums text-lg">{p.unitsSold}</td>
-                                                <td className="px-10 py-6 text-right font-black text-slate-900 dark:text-white tabular-nums text-lg">{cs}{formatAbbreviatedNumber(p.stock * p.costPrice)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <h2 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{t('corpIntel')}</h2>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-3">{t('analyticalMatrix')}</p>
                         </div>
                     </div>
 
                     <WidgetErrorBoundary>
-                        <AISuggestions stats={stats} />
+                        <AISuggestions stats={stats} t={t} />
                     </WidgetErrorBoundary>
-                </div>
-            )}
-
-            {isPrivileged && hasAccess(currentUser, 'INVENTORY', 'view_inventory', permissions) && (
-                <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-slate-50 dark:border-gray-800 p-10 shadow-sm relative group overflow-hidden animate-fade-in">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-                    <div className="flex items-center gap-5 mb-10">
-                        <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-                        <h4 className="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-[0.4em]">Critical SKU Violations</h4>
-                    </div>
-                    {products?.filter(p => p.stock <= lowStockThreshold).length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {products.filter(p => p.stock <= lowStockThreshold).slice(0, 6).map(p => (
-                                <div key={p.id} className="p-6 bg-rose-50/30 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 rounded-3xl flex justify-between items-center group-hover:shadow-md transition-all">
-                                    <span className="text-[10px] font-black text-rose-600 uppercase truncate max-w-[150px] tracking-tight">{p.name}</span>
-                                    <span className="text-sm font-black text-rose-700 dark:text-rose-400 tabular-nums">{p.stock} Units</span>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="text-center py-10 bg-emerald-50/30 dark:bg-emerald-950/10 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/30">
-                            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Global inventory within safety protocols</p>
-                        </div>
-                    )}
-                    <NavLink to="/inventory" className="block text-center text-[9px] font-black text-primary uppercase tracking-[0.3em] mt-12 hover:underline">Launch Full Ledger Audit →</NavLink>
-                </div>
-            )}
-
-            {auditUser && (
-                <UserDetailModal 
-                    isOpen={!!auditUser} onClose={() => setAuditUser(null)} user={auditUser}
-                    sales={sales || []} expenses={expenses || []} customers={customers || []}
-                    currentUser={currentUser} receiptSettings={receiptSettings}
-                    businessProfile={businessProfile} onClockInOut={() => {}}
-                />
-            )}
-            
-            {hasAccess(currentUser, 'REPORTS', 'view_sales_reports', permissions) && (
-                <div className="lg:col-span-1 mt-12 animate-fade-in">
-                    <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 p-10">
-                        <div className="flex items-center gap-4 mb-10">
-                            <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                            <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Active Personnel Performance</h3>
-                        </div>
-                        <div className="space-y-6">
-                            {(staffLeaderboard || []).map((member, i) => (
-                                <button 
-                                    key={member.id} 
-                                    onClick={() => setAuditUser(member)}
-                                    className="w-full flex items-center justify-between p-6 bg-slate-50 dark:bg-gray-800 rounded-[2rem] hover:shadow-2xl hover:-translate-y-0.5 transition-all text-left border border-transparent hover:border-primary/20 group"
-                                >
-                                    <div className="flex items-center gap-5">
-                                        <div className="relative">
-                                            <img src={member.avatarUrl} className="w-12 h-12 rounded-2xl object-cover shadow-sm border-2 border-white dark:border-gray-700" />
-                                            <span className="absolute -top-2 -left-2 w-6 h-6 rounded-lg bg-slate-900 text-white flex items-center justify-center text-[9px] font-black group-hover:bg-primary transition-colors">{(i+1).toString().padStart(2, '0')}</span>
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tight truncate w-40">{member.name}</p>
-                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{member.salesCount} Settlements</p>
-                                        </div>
-                                    </div>
-                                    <div className="text-right" title={formatCurrency(member.totalSalesValue, cs)}>
-                                        <p className="text-sm font-black text-primary tabular-nums">{cs}{formatAbbreviatedNumber(member.totalSalesValue)}</p>
-                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">Authorized</p>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
                 </div>
             )}
         </div>

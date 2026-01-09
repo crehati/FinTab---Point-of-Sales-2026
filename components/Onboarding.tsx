@@ -1,10 +1,8 @@
-
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { BusinessProfile, AdminBusinessData, Product, User, Customer } from '../types';
-import { COUNTRIES, DEFAULT_RECEIPT_SETTINGS, PlusIcon } from '../constants';
-import { setStoredItemAndDispatchEvent, getStoredItem } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import { COUNTRIES } from '../constants';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 
 const STEPS = [
@@ -13,7 +11,7 @@ const STEPS = [
   { id: 3, name: 'Initialization' },
 ];
 
-const Onboarding: React.FC<any> = ({ onEnterDemo, onSwitchToLogin, onSuccess }) => {
+const Onboarding: React.FC<any> = () => {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
@@ -36,62 +34,69 @@ const Onboarding: React.FC<any> = ({ onEnterDemo, onSwitchToLogin, onSuccess }) 
         setLoading(true);
         setError(null);
 
-        // Simulation of database persistence
-        setTimeout(() => {
-            const businessId = `biz-${Date.now()}`;
-            const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
-            
-            const profile: BusinessProfile = { 
-                ...business, 
-                id: businessId, 
-                businessPhone: finalBusinessPhone,
-                dateEstablished: new Date().toISOString(),
-                employeeCount: '1-5',
-                isPublic: true 
-            };
-
-            const ownerUser: User = {
-                id: `user-owner-${Date.now()}`,
-                name: owner.fullName,
+        try {
+            // 1. Authenticate / Create Account
+            const { data: authData, error: authError } = await supabase.auth.signUp({
                 email: owner.email,
-                role: 'Owner',
-                status: 'Active',
-                avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(owner.fullName)}&background=2563EB&color=fff`,
-                type: 'commission',
-                initialInvestment: 0
-            };
-
-            const registry = getStoredItem<AdminBusinessData[]>('fintab_businesses_registry', []);
-            const newEntry: AdminBusinessData = {
-                id: businessId,
-                profile,
-                licensingInfo: { licenseType: 'Trial', enrollmentDate: new Date().toISOString(), trialEndDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() },
-                settings: { acceptRemoteOrders: true },
-                owner: { name: owner.fullName, email: owner.email },
-                stats: { totalRevenue: 0, salesCount: 0, userCount: 1, joinedDate: new Date().toISOString(), status: 'Active' }
-            };
-
-            setStoredItemAndDispatchEvent('fintab_businesses_registry', [...registry, newEntry]);
-            setStoredItemAndDispatchEvent(`fintab_${businessId}_users`, [ownerUser]);
-            setStoredItemAndDispatchEvent(`fintab_${businessId}_receipt_settings`, {
-                ...DEFAULT_RECEIPT_SETTINGS, 
-                businessName: business.businessName
+                password: owner.password,
+                options: { data: { full_name: owner.fullName } }
             });
 
+            if (authError) throw authError;
+            if (!authData.user) throw new Error("Authentication initialization failed.");
+
+            // 2. Check for existing membership (Idempotent Onboarding)
+            const { data: existingMembership } = await supabase
+                .from('memberships')
+                .select('business_id')
+                .eq('user_id', authData.user.id)
+                .single();
+
+            if (existingMembership) {
+                localStorage.setItem('fintab_active_business_id', existingMembership.business_id);
+                setStep(3);
+                setLoading(false);
+                return;
+            }
+
+            // 3. Create New Business
+            const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
+            const { data: bizData, error: bizError } = await supabase
+                .from('businesses')
+                .insert({
+                    name: business.businessName,
+                    type: business.businessType,
+                    email: business.businessEmail,
+                    phone: finalBusinessPhone,
+                    owner_id: authData.user.id,
+                })
+                .select()
+                .single();
+
+            if (bizError) throw bizError;
+
+            // 4. Create Membership
+            const { error: memberError } = await supabase
+                .from('memberships')
+                .insert({
+                    business_id: bizData.id,
+                    user_id: authData.user.id,
+                    role: 'Owner'
+                });
+
+            if (memberError) throw memberError;
+
+            localStorage.setItem('fintab_active_business_id', bizData.id);
             setLoading(false);
             setStep(3);
-        }, 1500);
-    };
-
-    const handleFinish = () => {
-        const registry = getStoredItem<AdminBusinessData[]>('fintab_businesses_registry', []);
-        const biz = registry[registry.length - 1];
-        const users = getStoredItem<User[]>(`fintab_${biz.id}_users`, []);
-        onSuccess(users[0], biz.id);
+        } catch (err) {
+            setError(err.message || "A protocol initialization error occurred.");
+            setLoading(false);
+        }
     };
 
     return (
-        <div className="min-h-screen bg-[#F8FAFC] dark:bg-gray-950 flex flex-col items-center justify-center p-4 sm:p-6 font-sans overflow-y-auto pt-4 pb-4">
+        <div className="min-h-screen bg-[#F8FAFC] dark:bg-gray-950 flex flex-col items-center justify-center p-4 sm:p-6 font-sans overflow-y-auto">
             <div className="w-full max-w-[500px] space-y-3 animate-fade-in">
                 
                 <div className="flex justify-center gap-3">
@@ -131,6 +136,11 @@ const Onboarding: React.FC<any> = ({ onEnterDemo, onSwitchToLogin, onSuccess }) 
                                 <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Logic</h2>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
                             </header>
+                            {error && (
+                                <div className="p-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase text-center border border-rose-100">
+                                    {error}
+                                </div>
+                            )}
                             <div className="space-y-4">
                                 <Input label="Organization Name" value={business.businessName} onChange={e => setBusiness({...business, businessName: e.target.value})} placeholder="e.g. Quantum Retail" />
                                 <div>
@@ -151,7 +161,7 @@ const Onboarding: React.FC<any> = ({ onEnterDemo, onSwitchToLogin, onSuccess }) 
                                     disabled={loading || !business.businessName}
                                     className="flex-[2] bg-primary text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-98 transition-all flex items-center justify-center gap-2"
                                 >
-                                    {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Initialize Grid'}
+                                    {loading ? <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Initialize Grid'}
                                 </button>
                             </div>
                         </div>
@@ -164,10 +174,10 @@ const Onboarding: React.FC<any> = ({ onEnterDemo, onSwitchToLogin, onSuccess }) 
                             </div>
                             <div>
                                 <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Terminal Sync Complete</h2>
-                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Welcome, {owner.fullName}. Your secure business node is now active.</p>
+                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Welcome. Your secure business node is now active. If you just signed up, please check your email for a verification link.</p>
                             </div>
                             <button 
-                                onClick={handleFinish} 
+                                onClick={() => window.location.hash = "/dashboard"} 
                                 className="w-full bg-slate-900 text-white py-5 rounded-xl font-black uppercase text-[11px] tracking-[0.3em] shadow-2xl active:scale-95 transition-all"
                             >
                                 Launch Dashboard
@@ -177,7 +187,7 @@ const Onboarding: React.FC<any> = ({ onEnterDemo, onSwitchToLogin, onSuccess }) 
                 </div>
 
                 {step < 3 && (
-                    <button onClick={onSwitchToLogin} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors">Abort & Back to Login</button>
+                    <button onClick={() => navigate('/login')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8">Abort & Back to Login</button>
                 )}
             </div>
         </div>

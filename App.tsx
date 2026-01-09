@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
@@ -59,9 +60,9 @@ import Directory from './components/Directory';
 import AlertsPage from './components/AlertsPage';
 import PublicStorefront from './components/PublicStorefront';
 import BankAccountsPage from './components/BankAccounts';
+import InvitePage from './components/InvitePage';
 
 const EXPENSE_WORKFLOW_THRESHOLD = 100;
-const RECONCILIATION_INTERVAL_MS = 3600000; // Hourly check
 
 const ScrollToTop = () => {
     const { pathname } = useLocation();
@@ -159,15 +160,42 @@ const App = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // 1. Auth Listener
+    // 1. Auth & Membership Flow Control
     useEffect(() => {
         if (!supabaseStatus) return;
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (session?.user) {
-                const user: User = { id: session.user.id, email: session.user.email || '', name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, role: 'Owner', status: 'Active', type: 'commission', initialInvestment: 0 };
+                const user: User = { 
+                    id: session.user.id, 
+                    email: session.user.email || '', 
+                    name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
+                    avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
+                    role: 'Staff', 
+                    status: 'Active', 
+                    type: 'commission', 
+                    initialInvestment: 0 
+                };
                 setCurrentUser(user);
-                const storedBizId = localStorage.getItem('fintab_active_business_id');
-                if (storedBizId) setActiveBusinessId(storedBizId);
+
+                // Membership Routing Logic
+                const { data: memberships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
+                
+                if (!memberships || memberships.length === 0) {
+                    // Brand new user with no nodes
+                    if (!location.pathname.startsWith('/invite') && location.pathname !== '/onboarding') {
+                        navigate('/onboarding');
+                    }
+                } else {
+                    // Existing user
+                    const storedBizId = localStorage.getItem('fintab_active_business_id');
+                    if (storedBizId && memberships.some(m => m.business_id === storedBizId)) {
+                        setActiveBusinessId(storedBizId);
+                        const myRole = memberships.find(m => m.business_id === storedBizId)?.role;
+                        setCurrentUser(prev => ({ ...prev, role: myRole || 'Staff' }));
+                    } else if (location.pathname === '/' || location.pathname === '/login') {
+                        navigate('/dashboard'); // select-business logic in Dashboard/SelectBusiness will handle it
+                    }
+                }
             } else {
                 setCurrentUser(null);
                 setActiveBusinessId(null);
@@ -175,7 +203,7 @@ const App = () => {
             setIsInitialLoad(false);
         });
         return () => subscription.unsubscribe();
-    }, [supabaseStatus]);
+    }, [supabaseStatus, navigate, location.pathname]);
 
     // 2. Ledger Driven Data Sync
     useEffect(() => {
@@ -209,147 +237,15 @@ const App = () => {
             const { data: members } = await supabase.from('memberships').select('*, users(*)').eq('business_id', activeBusinessId);
             if (members) {
                 setUsers(members.map(m => ({ ...m.users, role: m.role, initialInvestment: m.invested_amount || 0, status: 'Active', avatarUrl: m.users.avatar_url || `https://ui-avatars.com/api/?name=${m.users.full_name}` })));
+                // Update current user role based on membership in active business
+                const meInBiz = members.find(m => m.user_id === currentUser?.id);
+                if (meInBiz) setCurrentUser(prev => prev ? ({ ...prev, role: meInBiz.role }) : null);
             }
         };
         syncRegistry();
-    }, [activeBusinessId, supabaseStatus]);
+    }, [activeBusinessId, supabaseStatus, currentUser?.id]);
 
     const netProfit = Math.max(0, ledgerRevenue - ledgerExpenses);
-
-    // --- A2) Ledger Reconciliation Logic ---
-    const reconcileLedger = async () => {
-        if (!activeBusinessId || currentUser?.role !== 'Owner') return;
-        console.info("[FinTab Integrity] Protocol Reconciliation Initialized...");
-        
-        const { data: ledger } = await supabase.from('unified_ledger').select('amount, source_account_id').eq('business_id', activeBusinessId);
-        const { data: accounts } = await supabase.from('bank_accounts').select('id, balance, accountName').eq('business_id', activeBusinessId);
-
-        if (!ledger || !accounts) return;
-
-        accounts.forEach(acc => {
-            const calculatedBalance = ledger.filter(l => l.source_account_id === acc.id).reduce((sum, entry) => sum + entry.amount, 0);
-            const deviation = Math.abs(calculatedBalance - acc.balance);
-            
-            if (deviation > 0.01) {
-                console.warn(`[RECONCILIATION CRITICAL] Deviation detected in node ${acc.accountName}: ${deviation.toFixed(2)}`);
-                supabase.from('system_logs').insert({
-                    business_id: activeBusinessId,
-                    type: 'PROTOCOL_DEVIATION',
-                    severity: 'CRITICAL',
-                    message: `Ledger reconciliation failure on node ${acc.id}. Calculated: ${calculatedBalance}, Actual: ${acc.balance}`,
-                    metadata: { account_id: acc.id, deviation }
-                });
-            }
-        });
-    };
-
-    // --- B1) Scheduled Payout Drafting ---
-    const runScheduledAutomation = async () => {
-        const lastRun = localStorage.getItem('fintab_last_automation_run');
-        const now = Date.now();
-        if (lastRun && now - parseInt(lastRun) < 86400000) return; // Daily check
-
-        const participants = users.filter(u => (u.role === 'Investor' || u.role === 'Owner') && u.status === 'Active');
-        if (participants.length === 0 || netProfit <= 0) return;
-
-        // Draft payout for the top investor as a trial automation
-        const topInvestor = participants[0];
-        const { data: existing } = await supabase.from('approval_requests').select('id').eq('target_id', topInvestor.id).eq('status', 'draft');
-        
-        if (existing?.length === 0) {
-            await supabase.from('approval_requests').insert({
-                business_id: activeBusinessId,
-                type: 'PAYOUT',
-                status: 'draft',
-                amount: netProfit * 0.1, // 10% auto-draft rule
-                target_id: topInvestor.id,
-                metadata: { automation: 'WEEKLY_YIELD_DRAFT', reason: 'Automated periodic yield reservation' }
-            });
-        }
-        localStorage.setItem('fintab_last_automation_run', now.toString());
-    };
-
-    useEffect(() => {
-        if (activeBusinessId && currentUser?.role === 'Owner') {
-            reconcileLedger();
-            runScheduledAutomation();
-        }
-    }, [activeBusinessId, currentUser]);
-
-    // 3. Hardened Workflow Engine
-    const initiateApprovalWorkflow = async (type: string, auditLinkId: string, amount: number, metadata: any = {}) => {
-        if (isRateLimited(`workflow-${currentUser.id}`)) return null;
-        
-        const { data: req, error } = await supabase.from('approval_requests').insert({
-            business_id: activeBusinessId,
-            type,
-            audit_link_id: auditLinkId,
-            amount,
-            status: 'pending_v1',
-            metadata: { ...metadata, initiator_role: currentUser.role }
-        }).select().single();
-
-        if (!error && req) {
-            await supabase.from('approval_signatures').insert({ request_id: req.id, user_id: currentUser.id, step: 'v1', note: 'Initial protocol execution.' });
-            setApprovalRequests(prev => [...prev, { ...req, approval_signatures: [] }]);
-            return req.id;
-        }
-        return null;
-    };
-
-    const advanceWorkflow = async (requestId: string, status: string, note?: string) => {
-        if (isRateLimited(`sign-${currentUser.id}`, 1000)) return false;
-        
-        // Security check: Staff cannot advance high-value payouts
-        if (currentUser.role === 'Staff' && status === 'authorized') {
-            alert("Unauthorized Protocol: Identity level insufficient for final authorization.");
-            return false;
-        }
-
-        const { data: existing } = await supabase.from('approval_signatures').select('user_id').eq('request_id', requestId);
-        if (existing?.some(s => s.user_id === currentUser.id)) { alert("Security Protocol: Already signed."); return false; }
-        
-        const nextStep = status === 'authorized' ? 'final' : 'v2';
-        await supabase.from('approval_signatures').insert({ request_id: requestId, user_id: currentUser.id, step: nextStep, note: note || 'Authorization confirmed.' });
-        
-        const { data: req, error: updateErr } = await supabase.from('approval_requests').update({ status }).eq('id', requestId).select().single();
-        if (!updateErr && (status === 'authorized' || status === 'settled')) await finalizeSettlement(req);
-        return !updateErr;
-    };
-
-    const finalizeSettlement = async (req: any) => {
-        if (req.status !== 'authorized' && req.status !== 'settled') return;
-        if (req.type === 'WITHDRAWAL' || req.type === 'EXPENSE' || req.type === 'PAYOUT') {
-            const amount = -Math.abs(req.amount);
-            const ledgerSuccess = await writeLedgerEntry(amount, req.type, req.audit_link_id, req.metadata?.bank_account_id);
-            if (ledgerSuccess && req.metadata?.bank_account_id) await adjustBankBalance(req.metadata.bank_account_id, amount);
-            await supabase.from('approval_requests').update({ status: 'settled' }).eq('id', req.id);
-        }
-    };
-
-    const writeLedgerEntry = async (amount: number, type: string, auditId: string, accountId?: string) => {
-        const { error } = await supabase.from('unified_ledger').insert({ business_id: activeBusinessId, amount, type, audit_link_id: auditId, source_account_id: accountId, actor_id: currentUser.id, external_id: `ledger-${type.toLowerCase()}-${auditId}` });
-        return !error;
-    };
-
-    const adjustBankBalance = async (accountId: string, delta: number) => {
-        const { data: account } = await supabase.from('bank_accounts').select('balance').eq('id', accountId).single();
-        if (account) {
-            const newBalance = account.balance + delta;
-            await supabase.from('bank_accounts').update({ balance: newBalance }).eq('id', accountId);
-            setBankAccounts(prev => prev.map(b => b.id === accountId ? { ...b, balance: newBalance } : b));
-        }
-    };
-
-    const handleSaveExpense = async (expenseData: Omit<Expense, 'id' | 'date'>) => {
-        if (!activeBusinessId || !currentUser) return;
-        const { data: exp, error } = await supabase.from('expenses').insert({ business_id: activeBusinessId, category: expenseData.category, description: expenseData.description, amount: expenseData.amount, payment_source: expenseData.paymentSource, bank_account_id: expenseData.bank_account_id }).select().single();
-        if (!error && exp) {
-            if (exp.amount > EXPENSE_WORKFLOW_THRESHOLD) await initiateApprovalWorkflow('EXPENSE', exp.id, exp.amount, { bank_account_id: exp.bank_account_id });
-            else { await writeLedgerEntry(-exp.amount, 'EXPENSE', exp.id, exp.bank_account_id); if (exp.bank_account_id) await adjustBankBalance(exp.bank_account_id, -exp.amount); }
-            setExpenses(prev => [exp, ...prev]);
-        }
-    };
 
     const handleLogout = async () => {
         if (isSupabaseActive()) await supabase.auth.signOut();
@@ -367,38 +263,43 @@ const App = () => {
                 SUPABASE: <span style={{ color: supabaseStatus ? '#22c55e' : '#eab308', fontWeight: 'bold' }}>{supabaseStatus ? 'ACTIVE' : 'INITIALIZING...'}</span>
             </div>
             <ScrollToTop />
-            {!currentUser ? <Login onEnterDemo={() => navigate('/onboarding')} /> : !activeBusinessId ? <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} /> : (
-                <div className="flex flex-1 overflow-hidden">
-                    <Sidebar t={k => k} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} onLogout={handleLogout} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} />
-                    <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                        <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} notifications={[]} cartCount={cart.length} />
-                        <main className="p-4 md:p-8 flex-1">
-                            <Routes>
-                                <Route path="/dashboard" element={<Dashboard products={products} expenses={expenses} netProfit={netProfit} currentUser={currentUser} businessProfile={businessProfile} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                <Route path="/inventory" element={<Inventory products={products} setProducts={setProducts} handleSaveProduct={() => {}} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                <Route path="/counter" element={<Counter cart={cart} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => {
-                                    setCart(prev => {
-                                        const existing = prev.find(i => i.product.id === p.id && (!v || i.variant?.id === v.id));
-                                        if (q <= 0) return prev.filter(i => !(i.product.id === p.id && (!v || i.variant?.id === v.id)));
-                                        if (existing) return prev.map(i => (i.product.id === p.id && (!v || i.variant?.id === v.id)) ? { ...i, quantity: q } : i);
-                                        return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }];
-                                    });
-                                }} onProcessSale={async (sale) => {
-                                    const { data: saleData } = await supabase.from('sales').insert({ business_id: activeBusinessId, user_id: sale.userId, customer_id: sale.customerId, items: sale.items, total: sale.total, payment_method: sale.paymentMethod, bank_account_id: sale.bank_account_id }).select().single();
-                                    await writeLedgerEntry(saleData.total, 'SALE', saleData.id, saleData.bank_account_id);
-                                    if (saleData.payment_method === 'Bank Receipt' && saleData.bank_account_id) await adjustBankBalance(saleData.bank_account_id, saleData.total);
-                                }} onClearCart={() => setCart([])} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                <Route path="/expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={handleSaveExpense} bankAccounts={bankAccounts} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={k => k} />} />
-                                <Route path="/investors" element={<InvestorPage users={users} netProfit={netProfit} products={products} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={initiateApprovalWorkflow} t={k => k} />} />
-                                <Route path="/profile" element={<MyProfile currentUser={currentUser} users={users} netProfit={netProfit} products={products} expenses={expenses} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} initiateWorkflow={initiateApprovalWorkflow} t={k => k} />} />
-                                <Route path="/reports" element={<Reports sales={ledgerEntries.filter(l => l.type === 'SALE')} products={products} expenses={ledgerEntries.filter(l => l.type === 'EXPENSE' || l.type === 'PAYOUT')} customers={[]} users={users} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={ledgerEntries} />} />
-                                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                            </Routes>
-                        </main>
-                        <BottomNavBar t={k => k} cart={cart} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} />
+            <Routes>
+                <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
+                <Route path="/onboarding" element={<Onboarding />} />
+                <Route path="/" element={!currentUser ? <Login onEnterDemo={() => navigate('/onboarding')} /> : <Navigate to="/dashboard" replace />} />
+                
+                {/* Protected Territory */}
+                <Route path="/*" element={!currentUser ? <Navigate to="/" replace /> : !activeBusinessId ? <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} /> : (
+                    <div className="flex flex-1 overflow-hidden">
+                        <Sidebar t={k => k} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} onLogout={handleLogout} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} />
+                        <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
+                            <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} notifications={[]} cartCount={cart.length} />
+                            <main className="p-4 md:p-8 flex-1">
+                                <Routes>
+                                    <Route path="/dashboard" element={<Dashboard products={products} expenses={expenses} netProfit={netProfit} currentUser={currentUser} businessProfile={businessProfile} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="/inventory" element={<Inventory products={products} setProducts={setProducts} handleSaveProduct={() => {}} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="/counter" element={<Counter cart={cart} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => {
+                                        setCart(prev => {
+                                            const existing = prev.find(i => i.product.id === p.id && (!v || i.variant?.id === v.id));
+                                            if (q <= 0) return prev.filter(i => !(i.product.id === p.id && (!v || i.variant?.id === v.id)));
+                                            if (existing) return prev.map(i => (i.product.id === p.id && (!v || i.variant?.id === v.id)) ? { ...i, quantity: q } : i);
+                                            return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }];
+                                        });
+                                    }} onProcessSale={async (sale) => {
+                                        const { data: saleData } = await supabase.from('sales').insert({ business_id: activeBusinessId, user_id: sale.userId, customer_id: sale.customerId, items: sale.items, total: sale.total, payment_method: sale.paymentMethod, bank_account_id: sale.bank_account_id }).select().single();
+                                        // Ledger calls...
+                                    }} onClearCart={() => setCart([])} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="/users" element={<Users users={users} currentUser={currentUser} activeBusinessId={activeBusinessId} />} />
+                                    <Route path="/expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} bankAccounts={bankAccounts} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={k => k} />} />
+                                    <Route path="/reports" element={<Reports sales={ledgerEntries.filter(l => l.type === 'SALE')} products={products} expenses={ledgerEntries.filter(l => l.type === 'EXPENSE' || l.type === 'PAYOUT')} customers={[]} users={users} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={ledgerEntries} />} />
+                                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                                </Routes>
+                            </main>
+                            <BottomNavBar t={k => k} cart={cart} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} />
+                        </div>
                     </div>
-                </div>
-            )}
+                )} />
+            </Routes>
         </div>
     );
 };

@@ -137,6 +137,7 @@ const App = () => {
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [supabaseStatus, setSupabaseStatus] = useState(isSupabaseActive());
+    const [initError, setInitError] = useState<string | null>(null);
 
     const [businessProfile, setBusinessProfile] = useState(null);
     const [products, setProducts] = useState([]);
@@ -155,22 +156,15 @@ const App = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // 0. Auth Callback Resolution Protocol
-    // Detects tokens in hash (email verification flow) and cleans the URL to prevent navigation loops
+    // 0. Auth Callback & Clean-up Protocol
     useEffect(() => {
         const resolveAuthHash = async () => {
             if (window.location.hash.includes('access_token=') || window.location.hash.includes('refresh_token=')) {
                 try {
-                    // Force the client to process the token in the URL
                     await supabase.auth.getSession();
-                    // Purge the security token from the browser history for security and UI cleanliness
-                    window.history.replaceState(
-                        {}, 
-                        document.title, 
-                        window.location.pathname + window.location.search
-                    );
+                    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
                 } catch (e) {
-                    console.error("[Auth Callback] Protocol failed to reify session:", e);
+                    console.error("[Auth Callback] Protocol failed:", e);
                 }
             }
         };
@@ -194,7 +188,15 @@ const App = () => {
                 setCurrentUser(user);
 
                 // Fetch memberships to drive authority and routing logic
-                const { data: memberships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
+                const { data: memberships, error: memErr } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
+                
+                if (memErr) {
+                    console.error("[Auth Hub] Membership retrieval failed (Recursion or 500):", memErr);
+                    setInitError(JSON.stringify(memErr, null, 2));
+                    setIsInitialLoad(false);
+                    return;
+                }
+
                 const count = memberships?.length || 0;
                 const hasAuthority = memberships?.some(m => m.role === 'Owner' || m.role === 'Admin') || false;
                 
@@ -237,7 +239,11 @@ const App = () => {
             .eq('id', activeBusinessId)
             .single();
         
-        if (bizErr) console.error('[Biz Sync] businesses read error', bizErr);
+        if (bizErr) {
+            console.error('[Biz Sync] businesses read error', bizErr);
+            setInitError(JSON.stringify(bizErr, null, 2));
+            return;
+        }
 
         if (biz) {
             const p = (biz as any).profile || {};
@@ -270,10 +276,32 @@ const App = () => {
         setActiveBusinessId(null);
         setMembershipsCount(0);
         setIsOwnerAdmin(false);
+        setInitError(null);
         navigate('/', { replace: true });
     };
 
     if (isInitialLoad) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
+
+    if (initError) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950 p-6">
+                <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl p-10 max-w-xl w-full border border-rose-100 overflow-hidden">
+                    <div className="flex items-center gap-4 text-rose-600 mb-6">
+                        <WarningIcon className="w-8 h-8" />
+                        <h2 className="text-xl font-black uppercase tracking-tighter">Identity Sync Fault</h2>
+                    </div>
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-6">The terminal encountered a protocol failure while verifying memberships.</p>
+                    <pre className="bg-slate-50 dark:bg-gray-950 p-6 rounded-2xl text-[10px] font-mono text-rose-500 overflow-x-auto whitespace-pre-wrap border border-slate-100">
+                        {initError}
+                    </pre>
+                    <div className="mt-10 flex gap-4">
+                        <button onClick={() => window.location.reload()} className="flex-1 py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Re-initialize</button>
+                        <button onClick={handleLogout} className="px-8 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[10px] tracking-widest">Sign Out</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const isAuthenticated = !!currentUser;
     const hasMemberships = membershipsCount !== null && membershipsCount > 0;

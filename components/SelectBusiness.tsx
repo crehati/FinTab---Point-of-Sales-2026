@@ -4,7 +4,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import type { User } from '../types';
-import { BuildingIcon, LogoutIcon, PlusIcon } from '../constants';
+import { BuildingIcon, LogoutIcon, PlusIcon, WarningIcon } from '../constants';
 
 interface SelectBusinessProps {
     currentUser: User;
@@ -17,12 +17,14 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     const navigate = useNavigate();
     const [myMemberships, setMyMemberships] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [manualToken, setManualToken] = useState('');
 
     useEffect(() => {
         const fetchMemberships = async () => {
             setIsLoading(true);
-            // Explicitly defining the join via business_id to avoid schema-cache expansion errors
+            setError(null);
+            // Explicit selection to avoid JOIN recursion issues if backend RLS is misconfigured
             const { data, error } = await supabase
                 .from('memberships')
                 .select(`
@@ -35,8 +37,12 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                 `)
                 .eq('user_id', currentUser.id);
             
-            if (error) console.error("[Terminal Hub] Membership fetch failed:", error);
-            if (data) setMyMemberships(data);
+            if (error) {
+                console.error("[Terminal Hub] Membership fetch failed:", error);
+                setError(JSON.stringify(error, null, 2));
+            } else if (data) {
+                setMyMemberships(data);
+            }
             setIsLoading(false);
         };
         fetchMemberships();
@@ -63,6 +69,19 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                 </header>
 
                 <div className="space-y-6">
+                    {error && (
+                        <div className="p-6 bg-rose-50 border border-rose-100 rounded-2xl animate-shake">
+                            <div className="flex items-center gap-2 text-rose-600 mb-3 font-black text-[10px] uppercase">
+                                <WarningIcon className="w-4 h-4" />
+                                Protocol Sync Failure (Recursion/500)
+                            </div>
+                            <pre className="text-[9px] font-mono text-rose-500 overflow-x-auto whitespace-pre-wrap">
+                                {error}
+                            </pre>
+                            <button onClick={() => window.location.reload()} className="mt-4 w-full py-2 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase">Retry Node Fetch</button>
+                        </div>
+                    )}
+
                     {myMemberships.length > 0 ? (
                         <div className="grid grid-cols-1 gap-3">
                             {myMemberships.map(m => (
@@ -84,7 +103,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 </button>
                             ))}
                         </div>
-                    ) : (
+                    ) : !error && (
                         <div className="bg-white dark:bg-gray-900 p-12 rounded-[3rem] border border-dashed border-slate-200 dark:border-gray-800 text-center space-y-6">
                             <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">No Authorized Nodes Found.<br/>You must enroll a new business to begin.</p>
                             <button onClick={() => navigate('/onboarding')} className="px-10 py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Enroll New Business</button>
@@ -118,7 +137,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                 </div>
 
                 <div className="flex justify-center pt-6">
-                    <button onClick={onLogout} className="flex items-center gap-3 px-8 py-4 bg-white dark:bg-gray-900 rounded-2xl text-slate-400 hover:text-rose-500 font-bold uppercase text-[10px] tracking-[0.3em] transition-all border border-slate-100 dark:border-gray-800">
+                    <button onClick={onLogout} className="flex items-center gap-3 px-8 py-4 bg-white dark:bg-gray-900 rounded-2xl text-slate-400 hover:text-rose-500 font-bold uppercase text-[10px] tracking-[0.2em] transition-all border border-slate-100 dark:border-gray-800">
                         <LogoutIcon className="w-4 h-4" /> Sign Out
                     </button>
                 </div>

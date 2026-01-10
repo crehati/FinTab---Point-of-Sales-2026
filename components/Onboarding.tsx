@@ -7,14 +7,14 @@ import { COUNTRIES } from '../constants';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 
 const STEPS = [
-  { id: 1, name: 'Authorization' },
-  { id: 2, name: 'Business Logic' },
-  { id: 3, name: 'Initialization' },
+  { id: 1, name: 'Identity' },
+  { id: 2, name: 'Business' },
+  { id: 3, name: 'Sync' },
 ];
 
-const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
+const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ currentUser, membershipsCount }) => {
     const navigate = useNavigate();
-    // Rule: Step 1 must show for all onboarding paths
+    // Start at step 1 regardless of authentication to verify Legal Identity
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -31,11 +31,17 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     });
     const [businessPhone, setBusinessPhone] = useState({ countryCode: '+1', localPhone: ''});
 
-    // Synchronize profile if authenticated
     useEffect(() => {
         if (currentUser) {
-            setOwner(prev => ({ ...prev, fullName: currentUser.name || prev.fullName, email: currentUser.email || prev.email }));
-            setBusiness(prev => ({ ...prev, businessEmail: currentUser.email || prev.businessEmail }));
+            setOwner(prev => ({ 
+                ...prev, 
+                fullName: currentUser.name || prev.fullName, 
+                email: currentUser.email || prev.email 
+            }));
+            setBusiness(prev => ({ 
+                ...prev, 
+                businessEmail: currentUser.email || prev.businessEmail 
+            }));
         }
     }, [currentUser]);
 
@@ -57,7 +63,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 if (authError) throw authError;
                 userId = authData.user?.id;
             } else {
-                // Update metadata if user is already authenticated
+                // Ensure name is synced to metadata for established accounts
                 await supabase.auth.updateUser({
                     data: { full_name: owner.fullName }
                 });
@@ -131,7 +137,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                     </>
                                 ) : (
                                     <div className="p-4 bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-800">
-                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Account</p>
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Email</p>
                                         <p className="text-xs font-bold text-slate-900 dark:text-white">{owner.email}</p>
                                     </div>
                                 )}
@@ -141,7 +147,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                 disabled={!owner.fullName || (!currentUser && (!owner.email || !owner.password))}
                                 className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-98 transition-all disabled:opacity-30"
                             >
-                                Continue Protocol
+                                Continue Node Setup
                             </button>
                         </div>
                     )}
@@ -163,7 +169,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                     <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 mb-1 block">Mobile Endpoint</label>
                                     <div className="flex bg-slate-50 dark:bg-gray-800 rounded-xl overflow-hidden focus-within:ring-4 focus-within:ring-primary/10 transition-all">
                                         <select name="countryCode" value={businessPhone.countryCode} onChange={e => setBusinessPhone({...businessPhone, countryCode: e.target.value})} className="bg-transparent border-none text-sm font-bold pl-3 w-28 outline-none">
-                                            {COUNTRIES.map(c => <option key={c.code} value={c.dial_code}>{c.flag} {c.dial_code}</option>)}
+                                            {COUNTRIES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code}</option>)}
                                         </select>
                                         <input type="tel" value={businessPhone.localPhone} onChange={e => setBusinessPhone({...businessPhone, localPhone: e.target.value})} className="flex-1 bg-transparent border-none p-3.5 text-base font-bold outline-none" placeholder="5551234567" />
                                     </div>
@@ -189,8 +195,8 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                 <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
                             </div>
                             <div>
-                                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Terminal Sync Complete</h2>
-                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Welcome. Your secure business node is now active.</p>
+                                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Sync Complete</h2>
+                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Identity authorized. Business node live.</p>
                             </div>
                             <button 
                                 onClick={() => window.location.reload()} 
@@ -203,7 +209,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 </div>
 
                 {step < 3 && (
-                    <button onClick={() => navigate('/')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8">Abort & Back to Login</button>
+                    <button onClick={() => navigate('/')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8">Abort Protocol</button>
                 )}
             </div>
         </div>

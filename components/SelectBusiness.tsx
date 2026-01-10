@@ -33,8 +33,8 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     }, [currentUser.id]);
 
     const canCreateBusiness = useMemo(() => {
-        // Rule: Only allow business creation if 0 memberships OR at least one membership is Owner/Admin
-        if (myMemberships.length === 0) return true;
+        // High Authority Check: Only allow business creation if user is Owner/Admin in any of their existing nodes
+        if (myMemberships.length === 0) return true; // Initial entry handled by route guard usually
         return myMemberships.some(m => m.role === 'Owner' || m.role === 'Admin');
     }, [myMemberships]);
 
@@ -72,7 +72,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{m.businesses?.name}</p>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Identity Protocol: {m.role}</p>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Role: {m.role}</p>
                                     </div>
                                     <div className="text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" strokeWidth={3} /></svg>
@@ -82,12 +82,12 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                         </div>
                     ) : (
                         <div className="bg-white dark:bg-gray-900 p-12 rounded-[3rem] border border-dashed border-slate-200 dark:border-gray-800 text-center space-y-6">
-                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">Identity Unassigned.<br/>Enroll a new node to begin.</p>
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">No Authorized Nodes Found.<br/>You must enroll a new business to begin.</p>
                             <button onClick={() => navigate('/onboarding')} className="px-10 py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Enroll New Business</button>
                         </div>
                     )}
 
-                    {/* Additional Node Enrollment: Only for Owners/Admins */}
+                    {/* Authority Guard: Enrollment Path */}
                     {myMemberships.length > 0 && canCreateBusiness && (
                         <button 
                             onClick={() => navigate('/onboarding')}
@@ -99,7 +99,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     )}
 
                     <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-6 px-1">Staff / Partner Join</h3>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-6 px-1">Accept Invitation</h3>
                         <form onSubmit={handleManualTokenSubmit} className="space-y-4">
                             <input 
                                 type="text" 

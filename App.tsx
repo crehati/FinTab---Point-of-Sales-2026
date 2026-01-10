@@ -210,11 +210,11 @@ const App = () => {
         // SCHEMA ALIGNMENT: select verified columns only. 'email', 'phone', 'type' are in profile JSONB.
         const { data: biz, error: bizErr } = await supabase
             .from('businesses')
-            .select('id, name, profile, settings')
+            .select('id, name, profile, settings, created_by')
             .eq('id', activeBusinessId)
             .single();
         
-        if (bizErr) console.error('[FinTab Ledger] business sync exception', bizErr);
+        if (bizErr) console.error('[Biz Sync] businesses read error', bizErr);
 
         if (biz) {
             const p = (biz as any).profile || {};
@@ -224,7 +224,7 @@ const App = () => {
                 businessType: p.type || 'Retail', 
                 businessEmail: p.ledger_email || '', 
                 businessPhone: p.phone || '', 
-                logo: p.logo || null 
+                logo: p.logo_url || null 
             });
         }
 

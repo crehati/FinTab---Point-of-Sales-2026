@@ -77,7 +77,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
             
             const bizPayload = {
                 name: business.businessName,
-                created_by: userId, // CRITICAL: Use created_by as requested
+                created_by: userId,
                 profile: {
                     ledger_email: business.businessEmail,
                     phone: finalBusinessPhone,
@@ -96,11 +96,10 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
             const bizResult = await Promise.race([bizInsert, timeout(TIMEOUT_MS)]) as any;
             
             if (bizResult.error) {
-                // Handle RLS specific error
-                if (bizResult.error.code === '42501' || bizResult.error.message.includes('permission denied')) {
-                    throw new Error("ACCESS DENIED (RLS): Your database is blocking the insert. Please enable INSERT permissions for 'authenticated' users on the 'businesses' table in Supabase.");
-                }
-                throw new Error(`[Business Node Error] ${bizResult.error.message || JSON.stringify(bizResult.error)}`);
+                console.error('BUSINESS_INSERT_ERROR', bizResult.error);
+                setError(`BUSINESS_INSERT_ERROR: ${JSON.stringify(bizResult.error, null, 2)}`);
+                setLoading(false);
+                return;
             }
 
             const bizData = bizResult.data;
@@ -116,15 +115,19 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 });
 
             const memberResult = await Promise.race([memberInsert, timeout(TIMEOUT_MS)]) as any;
-            if (memberResult.error) throw new Error(`[Membership Node Error] ${memberResult.error.message}`);
+            
+            if (memberResult.error) {
+                console.error('MEMBERSHIP_INSERT_ERROR', memberResult.error);
+                setError(`MEMBERSHIP_INSERT_ERROR: ${JSON.stringify(memberResult.error, null, 2)}`);
+                setLoading(false);
+                return;
+            }
 
             localStorage.setItem('fintab_active_business_id', bizData.id);
             setStep(3);
         } catch (err: any) {
             console.error("[Protocol Error]", err);
             setError(err.message || "An unexpected error occurred during node synchronization.");
-        } finally {
-            // Safety Protocol: Always terminate loading state
             setLoading(false);
         }
     };
@@ -181,8 +184,11 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
                             </header>
                             {error && (
-                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[11px] font-bold uppercase text-center border border-rose-100 shadow-sm animate-shake mb-4 break-all">
-                                    <WarningIcon className="w-4 h-4 mx-auto mb-2" />
+                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[10px] font-mono text-left border border-rose-100 shadow-sm animate-shake mb-4 overflow-x-auto whitespace-pre-wrap">
+                                    <div className="flex items-center gap-2 text-rose-600 mb-2 font-bold uppercase font-sans text-[11px]">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                        Protocol Fault Detected
+                                    </div>
                                     {error}
                                 </div>
                             )}

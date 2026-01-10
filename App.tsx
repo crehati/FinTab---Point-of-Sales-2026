@@ -155,6 +155,28 @@ const App = () => {
         return () => clearInterval(interval);
     }, []);
 
+    // 0. Auth Callback Resolution Protocol
+    // Detects tokens in hash (email verification flow) and cleans the URL to prevent navigation loops
+    useEffect(() => {
+        const resolveAuthHash = async () => {
+            if (window.location.hash.includes('access_token=') || window.location.hash.includes('refresh_token=')) {
+                try {
+                    // Force the client to process the token in the URL
+                    await supabase.auth.getSession();
+                    // Purge the security token from the browser history for security and UI cleanliness
+                    window.history.replaceState(
+                        {}, 
+                        document.title, 
+                        window.location.pathname + window.location.search
+                    );
+                } catch (e) {
+                    console.error("[Auth Callback] Protocol failed to reify session:", e);
+                }
+            }
+        };
+        resolveAuthHash();
+    }, []);
+
     // 1. Identity Lifecycle Protocol
     useEffect(() => {
         if (!supabaseStatus) return;
@@ -225,7 +247,7 @@ const App = () => {
                 businessType: p.type || 'Retail', 
                 businessEmail: p.ledger_email || '', 
                 businessPhone: p.phone || '', 
-                logo: p.logo || null,
+                logo: p.logo_url || null,
                 createdBy: biz.created_by
             });
         }

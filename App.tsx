@@ -154,7 +154,7 @@ const App = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // 1. Auth & Membership Lifecycle
+    // Identity Lifecycle Protocol
     useEffect(() => {
         if (!supabaseStatus) return;
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -170,12 +170,11 @@ const App = () => {
                 };
                 setCurrentUser(user);
 
-                // Fetch memberships to determine next terminal route
+                // Membership Integrity Check
                 const { data: memberships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
                 const count = memberships?.length || 0;
                 setMembershipsCount(count);
 
-                // If established, attempt to auto-select business from local vault
                 if (count > 0) {
                     const storedBizId = localStorage.getItem('fintab_active_business_id');
                     const validBiz = memberships.find(m => m.business_id === storedBizId);
@@ -184,15 +183,12 @@ const App = () => {
                         setCurrentUser(prev => ({ ...prev, role: validBiz.role }));
                     }
                 } else {
-                    // Logic for brand new identities (0 nodes)
-                    // If they follow an invite link, allow them to land on /invite
-                    // Otherwise, force Owner Onboarding
+                    // Routing Guard: Redirect 0-membership users to Onboarding unless they are on /invite
                     if (!location.pathname.startsWith('/invite') && location.pathname !== '/onboarding') {
                         navigate('/onboarding', { replace: true });
                     }
                 }
             } else {
-                // Clear session nodes
                 setCurrentUser(null);
                 setActiveBusinessId(null);
                 setMembershipsCount(0);
@@ -202,7 +198,7 @@ const App = () => {
         return () => subscription.unsubscribe();
     }, [supabaseStatus]);
 
-    // 2. Data Synchronization based on active business node
+    // Data Synchronization Hub
     useEffect(() => {
         if (!activeBusinessId || !supabaseStatus) return;
         const syncRegistry = async () => {
@@ -236,27 +232,27 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-gray-950">
             <ScrollToTop />
             <Routes>
-                {/* PUBLIC ACCESS PROTOCOL */}
+                {/* PUBLIC: Invitation Acceptance Gate */}
                 <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
                 
-                {/* LOGIN HUB - Default Landing */}
+                {/* IDENTITY HUB: Default Landing */}
                 <Route path="/" element={
                     !isAuthenticated ? <Login onEnterDemo={() => navigate('/onboarding')} /> : 
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
                     <Navigate to="/dashboard" replace />
                 } />
 
-                {/* ONBOARDING HUB - Protected for 0-membership users */}
+                {/* ONBOARDING HUB: Restricted to 0-membership Owners */}
                 <Route path="/onboarding" element={!isAuthenticated ? <Navigate to="/" replace /> : <Onboarding currentUser={currentUser} />} />
 
-                {/* BUSINESS SELECTION HUB - Protected for established users with no active node */}
+                {/* SELECTION HUB: For established identities with no active node */}
                 <Route path="/select-business" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
                     <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} />
                 } />
 
-                {/* PROTECTED TERMINAL INTERFACE */}
+                {/* AUTHORIZED INTERFACE */}
                 <Route path="/*" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
@@ -276,8 +272,6 @@ const App = () => {
                                                 if (existing) return prev.map(i => (i.product.id === p.id && (!v || i.variant?.id === v.id)) ? { ...i, quantity: q } : i);
                                                 return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }];
                                             });
-                                        }} onProcessSale={async (sale) => {
-                                            // Sale logic handled by components
                                         }} onClearCart={() => setCart([])} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                         <Route path="/reports" element={<Reports t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ledgerEntries={ledgerEntries} />} />
                                         <Route path="/users" element={<Users users={[]} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />

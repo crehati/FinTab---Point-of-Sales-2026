@@ -14,8 +14,8 @@ const STEPS = [
 
 const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     const navigate = useNavigate();
-    // Default to Step 2 if user is already authenticated
-    const [step, setStep] = useState(currentUser ? 2 : 1);
+    // Rule: Step 1 must show for all onboarding paths
+    const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
@@ -31,14 +31,13 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     });
     const [businessPhone, setBusinessPhone] = useState({ countryCode: '+1', localPhone: ''});
 
-    // Ensure we skip step 1 if currentUser becomes available
+    // Synchronize profile if authenticated
     useEffect(() => {
-        if (currentUser && step === 1) {
-            setStep(2);
-            setOwner(prev => ({ ...prev, fullName: currentUser.name, email: currentUser.email }));
-            setBusiness(prev => ({ ...prev, businessEmail: currentUser.email }));
+        if (currentUser) {
+            setOwner(prev => ({ ...prev, fullName: currentUser.name || prev.fullName, email: currentUser.email || prev.email }));
+            setBusiness(prev => ({ ...prev, businessEmail: currentUser.email || prev.businessEmail }));
         }
-    }, [currentUser, step]);
+    }, [currentUser]);
 
     const handleRegistrationSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -48,7 +47,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
         try {
             let userId = currentUser?.id;
 
-            // 1. Authenticate if not already logged in
+            // 1. Auth check: Use existing session or create new
             if (!userId) {
                 const { data: authData, error: authError } = await supabase.auth.signUp({
                     email: owner.email,
@@ -57,11 +56,16 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 });
                 if (authError) throw authError;
                 userId = authData.user?.id;
+            } else {
+                // Update metadata if user is already authenticated
+                await supabase.auth.updateUser({
+                    data: { full_name: owner.fullName }
+                });
             }
 
             if (!userId) throw new Error("Identity Protocol failure.");
 
-            // 2. Create New Business Node
+            // 2. Initialize Business Node
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
             const { data: bizData, error: bizError } = await supabase
                 .from('businesses')
@@ -77,7 +81,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
             if (bizError) throw bizError;
 
-            // 3. Create Ownership Membership
+            // 3. Establish Ownership Membership
             const { error: memberError } = await supabase
                 .from('memberships')
                 .insert({
@@ -111,23 +115,33 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     {step === 1 && (
                         <div className="space-y-6 animate-fade-in">
                             <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Account Creation</h2>
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Legal Identity</h2>
                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Principal Owner Enrollment</p>
                             </header>
                             <div className="space-y-4">
                                 <Input label="Legal Full Name" value={owner.fullName} onChange={e => setOwner({...owner, fullName: e.target.value})} placeholder="e.g. Jean Dupont" />
-                                <Input label="Security Email" value={owner.email} onChange={e => setOwner({...owner, email: e.target.value})} placeholder="owner@domain.com" />
-                                <div className="space-y-2">
-                                    <Input label="Protocol Password" type="password" value={owner.password} onChange={e => setOwner({...owner, password: e.target.value})} placeholder="••••••••" />
-                                    <PasswordStrengthIndicator password={owner.password} />
-                                </div>
+                                
+                                {!currentUser ? (
+                                    <>
+                                        <Input label="Security Email" value={owner.email} onChange={e => setOwner({...owner, email: e.target.value})} placeholder="owner@domain.com" />
+                                        <div className="space-y-2">
+                                            <Input label="Protocol Password" type="password" value={owner.password} onChange={e => setOwner({...owner, password: e.target.value})} placeholder="••••••••" />
+                                            <PasswordStrengthIndicator password={owner.password} />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="p-4 bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-800">
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Account</p>
+                                        <p className="text-xs font-bold text-slate-900 dark:text-white">{owner.email}</p>
+                                    </div>
+                                )}
                             </div>
                             <button 
                                 onClick={() => setStep(2)} 
-                                disabled={!owner.fullName || !owner.email || !owner.password}
+                                disabled={!owner.fullName || (!currentUser && (!owner.email || !owner.password))}
                                 className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-98 transition-all disabled:opacity-30"
                             >
-                                Next: Business Setup
+                                Continue Protocol
                             </button>
                         </div>
                     )}
@@ -135,8 +149,8 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     {step === 2 && (
                         <div className="space-y-6 animate-fade-in">
                             <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Node</h2>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Configure your first node</p>
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Logic</h2>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
                             </header>
                             {error && (
                                 <div className="p-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase text-center border border-rose-100">
@@ -157,7 +171,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                 <Input label="Official Ledger Email" value={business.businessEmail} onChange={e => setBusiness({...business, businessEmail: e.target.value})} placeholder="hq@business.io" />
                             </div>
                             <div className="flex gap-3">
-                                {!currentUser && <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest">Back</button>}
+                                <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest">Back</button>
                                 <button 
                                     onClick={handleRegistrationSubmit} 
                                     disabled={loading || !business.businessName}

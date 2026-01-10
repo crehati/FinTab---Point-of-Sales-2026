@@ -133,6 +133,7 @@ const App = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
     const [membershipsCount, setMembershipsCount] = useState<number | null>(null);
+    const [isOwnerAdmin, setIsOwnerAdmin] = useState(false);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [supabaseStatus, setSupabaseStatus] = useState(isSupabaseActive());
@@ -173,7 +174,10 @@ const App = () => {
                 // Membership Integrity Check
                 const { data: memberships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
                 const count = memberships?.length || 0;
+                const hasOwnerAdminRights = memberships?.some(m => m.role === 'Owner' || m.role === 'Admin') || false;
+                
                 setMembershipsCount(count);
+                setIsOwnerAdmin(hasOwnerAdminRights);
 
                 if (count > 0) {
                     const storedBizId = localStorage.getItem('fintab_active_business_id');
@@ -192,11 +196,12 @@ const App = () => {
                 setCurrentUser(null);
                 setActiveBusinessId(null);
                 setMembershipsCount(0);
+                setIsOwnerAdmin(false);
             }
             setIsInitialLoad(false);
         });
         return () => subscription.unsubscribe();
-    }, [supabaseStatus]);
+    }, [supabaseStatus, navigate, location.pathname]);
 
     // Data Synchronization Hub
     useEffect(() => {
@@ -220,6 +225,7 @@ const App = () => {
         setCurrentUser(null);
         setActiveBusinessId(null);
         setMembershipsCount(0);
+        setIsOwnerAdmin(false);
         navigate('/', { replace: true });
     };
 
@@ -227,6 +233,7 @@ const App = () => {
 
     const isAuthenticated = !!currentUser;
     const hasMemberships = membershipsCount !== null && membershipsCount > 0;
+    const canCreateNode = membershipsCount === 0 || isOwnerAdmin;
 
     return (
         <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-gray-950">
@@ -242,8 +249,12 @@ const App = () => {
                     <Navigate to="/dashboard" replace />
                 } />
 
-                {/* ONBOARDING HUB: Restricted to 0-membership Owners */}
-                <Route path="/onboarding" element={!isAuthenticated ? <Navigate to="/" replace /> : <Onboarding currentUser={currentUser} />} />
+                {/* ONBOARDING HUB: Restricted to 0-membership Owners or existing authorized Owners/Admins */}
+                <Route path="/onboarding" element={
+                    !isAuthenticated ? <Navigate to="/" replace /> : 
+                    !canCreateNode ? <Navigate to="/select-business" replace /> :
+                    <Onboarding currentUser={currentUser} />
+                } />
 
                 {/* SELECTION HUB: For established identities with no active node */}
                 <Route path="/select-business" element={

@@ -32,6 +32,12 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
         fetchMemberships();
     }, [currentUser.id]);
 
+    const canCreateBusiness = useMemo(() => {
+        // Rule: Only allow business creation if 0 memberships OR at least one membership is Owner/Admin
+        if (myMemberships.length === 0) return true;
+        return myMemberships.some(m => m.role === 'Owner' || m.role === 'Admin');
+    }, [myMemberships]);
+
     const handleManualTokenSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (manualToken.trim()) {
@@ -79,6 +85,17 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                             <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">Identity Unassigned.<br/>Enroll a new node to begin.</p>
                             <button onClick={() => navigate('/onboarding')} className="px-10 py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Enroll New Business</button>
                         </div>
+                    )}
+
+                    {/* Additional Node Enrollment: Only for Owners/Admins */}
+                    {myMemberships.length > 0 && canCreateBusiness && (
+                        <button 
+                            onClick={() => navigate('/onboarding')}
+                            className="w-full flex items-center justify-center gap-3 p-5 bg-primary/5 text-primary border-2 border-dashed border-primary/20 rounded-[2rem] hover:bg-primary/10 transition-all group"
+                        >
+                            <PlusIcon className="w-5 h-5" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Enroll Additional Node</span>
+                        </button>
                     )}
 
                     <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">

@@ -206,21 +206,27 @@ const App = () => {
     // 2. Data Synchronization
     const syncRegistry = async () => {
         if (!activeBusinessId || !supabaseStatus) return;
-        // CRITICAL FIX: Explicitly select verified columns only. 'email' is derived from profile JSONB.
-        const { data: biz } = await supabase
+        
+        // SCHEMA ALIGNMENT: select verified columns only. 'email', 'phone', 'type' are in profile JSONB.
+        const { data: biz, error: bizErr } = await supabase
             .from('businesses')
-            .select('id, name, profile, settings, created_by')
+            .select('id, name, profile, settings')
             .eq('id', activeBusinessId)
             .single();
         
-        if (biz) setBusinessProfile({ 
-            id: biz.id, 
-            businessName: biz.name, 
-            businessType: biz.profile?.type || 'Retail', 
-            businessEmail: biz.profile?.ledger_email || '', 
-            businessPhone: biz.profile?.phone || '', 
-            logo: biz.profile?.logo || null 
-        });
+        if (bizErr) console.error('[FinTab Ledger] business sync exception', bizErr);
+
+        if (biz) {
+            const p = (biz as any).profile || {};
+            setBusinessProfile({ 
+                id: biz.id, 
+                businessName: biz.name, 
+                businessType: p.type || 'Retail', 
+                businessEmail: p.ledger_email || '', 
+                businessPhone: p.phone || '', 
+                logo: p.logo_url || null 
+            });
+        }
 
         const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
         if (prods) setProducts(prods.map(p => ({ ...p, costPrice: p.cost_price, imageUrl: p.image_url })));

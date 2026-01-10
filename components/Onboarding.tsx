@@ -236,7 +236,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
 const Input: React.FC<any> = ({ label, ...props }) => (
     <div className="space-y-1">
         <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 block">{label}</label>
-        <input className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-xl p-3.5 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" {...props} />
+        <input className="w-full bg-slate-50 dark:bg-gray-950 border-none rounded-xl p-3.5 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" {...props} />
     </div>
 );
 

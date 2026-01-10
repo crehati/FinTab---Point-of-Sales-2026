@@ -204,31 +204,32 @@ const App = () => {
     }, [supabaseStatus]);
 
     // 2. Data Synchronization
-    useEffect(() => {
+    const syncRegistry = async () => {
         if (!activeBusinessId || !supabaseStatus) return;
-        const syncRegistry = async () => {
-            // CRITICAL FIX: Explicitly select verified columns only. 'email' and 'type' are derived from profile JSONB.
-            const { data: biz } = await supabase
-                .from('businesses')
-                .select('id, name, profile, settings, created_by, logo_url')
-                .eq('id', activeBusinessId)
-                .single();
-            
-            if (biz) setBusinessProfile({ 
-                id: biz.id, 
-                businessName: biz.name, 
-                businessType: biz.profile?.type || 'Retail', 
-                businessEmail: biz.profile?.ledger_email || '', 
-                businessPhone: biz.profile?.phone || '', 
-                logo: biz.logo_url 
-            });
+        // CRITICAL FIX: Explicitly select verified columns only. 'email' is derived from profile JSONB.
+        const { data: biz } = await supabase
+            .from('businesses')
+            .select('id, name, profile, settings, created_by')
+            .eq('id', activeBusinessId)
+            .single();
+        
+        if (biz) setBusinessProfile({ 
+            id: biz.id, 
+            businessName: biz.name, 
+            businessType: biz.profile?.type || 'Retail', 
+            businessEmail: biz.profile?.ledger_email || '', 
+            businessPhone: biz.profile?.phone || '', 
+            logo: biz.profile?.logo || null 
+        });
 
-            const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
-            if (prods) setProducts(prods.map(p => ({ ...p, costPrice: p.cost_price, imageUrl: p.image_url })));
+        const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
+        if (prods) setProducts(prods.map(p => ({ ...p, costPrice: p.cost_price, imageUrl: p.image_url })));
 
-            const { data: ledger } = await supabase.from('unified_ledger').select('*').eq('business_id', activeBusinessId);
-            if (ledger) setLedgerEntries(ledger);
-        };
+        const { data: ledger } = await supabase.from('unified_ledger').select('*').eq('business_id', activeBusinessId);
+        if (ledger) setLedgerEntries(ledger);
+    };
+
+    useEffect(() => {
         syncRegistry();
     }, [activeBusinessId, supabaseStatus]);
 

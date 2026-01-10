@@ -208,7 +208,14 @@ const App = () => {
         if (!activeBusinessId || !supabaseStatus) return;
         const syncRegistry = async () => {
             const { data: biz } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
-            if (biz) setBusinessProfile({ id: biz.id, businessName: biz.name, businessType: biz.type, businessEmail: biz.email, businessPhone: biz.phone, logo: biz.logo_url });
+            if (biz) setBusinessProfile({ 
+                id: biz.id, 
+                businessName: biz.name, 
+                businessType: biz.type, 
+                businessEmail: biz.profile?.ledger_email || '', 
+                businessPhone: biz.profile?.phone || '', 
+                logo: biz.logo_url 
+            });
 
             const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
             if (prods) setProducts(prods.map(p => ({ ...p, costPrice: p.cost_price, imageUrl: p.image_url })));

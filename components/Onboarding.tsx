@@ -78,9 +78,11 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 .insert({
                     name: business.businessName,
                     type: business.businessType,
-                    email: business.businessEmail,
-                    phone: finalBusinessPhone,
                     owner_id: userId,
+                    profile: {
+                        ledger_email: business.businessEmail,
+                        phone: finalBusinessPhone
+                    }
                 })
                 .select()
                 .single();

@@ -22,11 +22,20 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     useEffect(() => {
         const fetchMemberships = async () => {
             setIsLoading(true);
-            const { data } = await supabase
+            // Explicitly defining the join via business_id to avoid schema-cache expansion errors
+            const { data, error } = await supabase
                 .from('memberships')
-                .select('role, business_id, businesses(name, profile)')
+                .select(`
+                    role, 
+                    business_id, 
+                    businesses:business_id (
+                        name, 
+                        profile
+                    )
+                `)
                 .eq('user_id', currentUser.id);
             
+            if (error) console.error("[Terminal Hub] Membership fetch failed:", error);
             if (data) setMyMemberships(data);
             setIsLoading(false);
         };

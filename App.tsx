@@ -207,7 +207,8 @@ const App = () => {
     const syncRegistry = async () => {
         if (!activeBusinessId || !supabaseStatus) return;
         
-        // SCHEMA ALIGNMENT: select verified columns only. 'email', 'phone', 'type' are in profile JSONB.
+        // SCHEMA ALIGNMENT: select verified columns only. 
+        // Explicit selection ensures PostgREST does not attempt to fetch non-existent 'email' or 'owner_id' columns.
         const { data: biz, error: bizErr } = await supabase
             .from('businesses')
             .select('id, name, profile, settings, created_by')
@@ -224,7 +225,8 @@ const App = () => {
                 businessType: p.type || 'Retail', 
                 businessEmail: p.ledger_email || '', 
                 businessPhone: p.phone || '', 
-                logo: p.logo_url || null 
+                logo: p.logo_url || null,
+                createdBy: biz.created_by
             });
         }
 

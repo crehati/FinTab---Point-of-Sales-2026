@@ -50,6 +50,11 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
         setLoading(true);
         setError(null);
 
+        const TIMEOUT_MS = 15000;
+        const timeout = (ms: number) => new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Supabase request timed out — likely RLS blocked or network issue")), ms)
+        );
+
         try {
             let userId = currentUser?.id;
 
@@ -60,32 +65,26 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     password: owner.password,
                     options: { data: { full_name: owner.fullName } }
                 });
-                if (authError) {
-                    console.error("[FinTab Auth] Registry Failure:", authError);
-                    throw authError;
-                }
+                if (authError) throw authError;
                 userId = authData.user?.id;
             } else {
                 // Synchronize metadata for established accounts
                 const { error: updateError } = await supabase.auth.updateUser({
                     data: { full_name: owner.fullName }
                 });
-                if (updateError) {
-                    console.error("[FinTab Auth] Meta Sync Failure:", updateError);
-                    throw updateError;
-                }
+                if (updateError) throw updateError;
             }
 
             if (!userId) throw new Error("Identity Lost: Could not verify principal node user.");
 
             // 2. Initialize Business Node
-            // SCHEMA ALIGNMENT: Store ledger_email and phone inside profile. Remove top-level email/type/owner_id.
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
-            const { data: bizData, error: bizError } = await supabase
+            
+            const bizInsert = supabase
                 .from('businesses')
                 .insert({
                     name: business.businessName,
-                    created_by: userId,
+                    created_by: userId, // Protocol: Use created_by instead of owner_id
                     profile: {
                         ledger_email: business.businessEmail,
                         phone: finalBusinessPhone,
@@ -95,13 +94,23 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 .select('id, name, profile, settings, created_by')
                 .single();
 
+            const bizResult = await Promise.race([bizInsert, timeout(TIMEOUT_MS)]) as any;
+            const { data: bizData, error: bizError } = bizResult;
+
             if (bizError) {
-                console.error("[FinTab Grid] Node Creation Violation:", bizError);
-                throw bizError;
+                setError(`[Biz Error] ${JSON.stringify(bizError)}`);
+                setLoading(false);
+                return;
+            }
+
+            if (!bizData) {
+                setError("Protocol Error: Business creation returned null data.");
+                setLoading(false);
+                return;
             }
 
             // 3. Authorize Principal Membership
-            const { error: memberError } = await supabase
+            const memberInsert = supabase
                 .from('memberships')
                 .insert({
                     business_id: bizData.id,
@@ -109,9 +118,13 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     role: 'Owner'
                 });
 
+            const memberResult = await Promise.race([memberInsert, timeout(TIMEOUT_MS)]) as any;
+            const { error: memberError } = memberResult;
+
             if (memberError) {
-                console.error("[FinTab Grid] Authorization Failure:", memberError);
-                throw memberError;
+                setError(`[Member Error] ${JSON.stringify(memberError)}`);
+                setLoading(false);
+                return;
             }
 
             localStorage.setItem('fintab_active_business_id', bizData.id);
@@ -176,7 +189,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
                             </header>
                             {error && (
-                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[11px] font-bold uppercase text-center border border-rose-100 shadow-sm animate-shake mb-4">
+                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[11px] font-bold uppercase text-center border border-rose-100 shadow-sm animate-shake mb-4 break-all">
                                     {error}
                                 </div>
                             )}

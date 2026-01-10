@@ -111,7 +111,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     {step === 1 && (
                         <div className="space-y-6 animate-fade-in">
                             <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Legal Identity</h2>
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Account Creation</h2>
                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Principal Owner Enrollment</p>
                             </header>
                             <div className="space-y-4">
@@ -127,7 +127,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                                 disabled={!owner.fullName || !owner.email || !owner.password}
                                 className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-98 transition-all disabled:opacity-30"
                             >
-                                Continue Protocol
+                                Next: Business Setup
                             </button>
                         </div>
                     )}
@@ -135,8 +135,8 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     {step === 2 && (
                         <div className="space-y-6 animate-fade-in">
                             <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Logic</h2>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Node</h2>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Configure your first node</p>
                             </header>
                             {error && (
                                 <div className="p-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase text-center border border-rose-100">
@@ -189,7 +189,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 </div>
 
                 {step < 3 && (
-                    <button onClick={() => navigate('/login')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8">Abort & Back to Login</button>
+                    <button onClick={() => navigate('/')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8">Abort & Back to Login</button>
                 )}
             </div>
         </div>

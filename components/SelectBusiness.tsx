@@ -1,9 +1,9 @@
 
 // @ts-nocheck
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { User, AdminBusinessData } from '../types';
-import { getStoredItem } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import type { User } from '../types';
 import { BuildingIcon, LogoutIcon, PlusIcon } from '../constants';
 
 interface SelectBusinessProps {
@@ -14,25 +14,24 @@ interface SelectBusinessProps {
 
 const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, onLogout }) => {
     const navigate = useNavigate();
-    const [inviteCode, setInviteCode] = useState('');
-    const [error, setError] = useState<string | null>(null);
+    const [myMemberships, setMyMemberships] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const myBusinesses = useMemo(() => {
-        const registry = getStoredItem<AdminBusinessData[]>('fintab_businesses_registry', []);
-        // In actual production, this would come from a memberships query
-        return registry.filter(b => b.owner.email.toLowerCase() === currentUser.email.toLowerCase());
-    }, [currentUser.email]);
+    useEffect(() => {
+        const fetchMemberships = async () => {
+            setIsLoading(true);
+            const { data, error } = await supabase
+                .from('memberships')
+                .select('role, business_id, businesses(name, type)')
+                .eq('user_id', currentUser.id);
+            
+            if (data) setMyMemberships(data);
+            setIsLoading(false);
+        };
+        fetchMemberships();
+    }, [currentUser.id]);
 
-    const handleJoin = (e: React.FormEvent) => {
-        e.preventDefault();
-        setError(null);
-        if (inviteCode.length < 4) {
-            setError("Invalid Protocol Code.");
-            return;
-        }
-        // Logic for manual token entry if link wasn't used
-        navigate(`/invite?token=${inviteCode}`);
-    };
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex flex-col items-center justify-center p-6 font-sans">
@@ -41,25 +40,25 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     <div className="w-16 h-16 bg-white dark:bg-gray-900 rounded-3xl shadow-xl border border-slate-100 dark:border-gray-800 flex items-center justify-center mx-auto">
                         <BuildingIcon className="w-8 h-8 text-primary" />
                     </div>
-                    <h1 className="text-3xl font-bold tracking-tighter text-slate-900 dark:text-white uppercase">Business Hub</h1>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em]">Authorization Required</p>
+                    <h1 className="text-3xl font-bold tracking-tighter text-slate-900 dark:text-white uppercase">Terminal Hub</h1>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em]">Select Operational Node</p>
                 </header>
 
                 <div className="space-y-6">
-                    {myBusinesses.length > 0 ? (
+                    {myMemberships.length > 0 ? (
                         <div className="grid grid-cols-1 gap-3">
-                            {myBusinesses.map(biz => (
+                            {myMemberships.map(m => (
                                 <button
-                                    key={biz.id}
-                                    onClick={() => onSelect(biz.id)}
+                                    key={m.business_id}
+                                    onClick={() => onSelect(m.business_id)}
                                     className="w-full flex items-center gap-5 p-6 bg-white dark:bg-gray-900 border border-slate-100 dark:border-gray-800 rounded-[2rem] hover:border-primary hover:shadow-xl transition-all group text-left shadow-sm active:scale-[0.98]"
                                 >
                                     <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-gray-800 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
                                         <BuildingIcon className="w-6 h-6 text-slate-400 group-hover:text-primary" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{biz.profile.businessName}</p>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node</p>
+                                        <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{m.businesses?.name}</p>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Role: {m.role}</p>
                                     </div>
                                     <div className="text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" strokeWidth={3} /></svg>
@@ -68,25 +67,17 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                             ))}
                         </div>
                     ) : (
-                        <div className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] border border-dashed border-slate-200 dark:border-gray-800 text-center">
-                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No Authorized Nodes Found</p>
-                            <button onClick={() => navigate('/onboarding')} className="mt-8 px-8 py-3 bg-primary text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl">Enroll New Business</button>
+                        <div className="bg-white dark:bg-gray-900 p-12 rounded-[3rem] border border-dashed border-slate-200 dark:border-gray-800 text-center space-y-6">
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">No Authorized Nodes Found.<br/>You must follow an invitation link or enroll a new business.</p>
+                            <button onClick={() => navigate('/onboarding')} className="px-8 py-3 bg-primary text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl">Enroll New Business</button>
                         </div>
                     )}
 
+                    {/* Secondary Payout/Invite Tool for users who want to join another node manually */}
                     <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-6 px-1">Join via Invitation</h3>
-                        <form onSubmit={handleJoin} className="space-y-4">
-                            <input 
-                                type="text" 
-                                value={inviteCode}
-                                onChange={e => setInviteCode(e.target.value)}
-                                placeholder="Enter Token"
-                                className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-5 text-sm font-bold focus:ring-4 focus:ring-primary/10 outline-none uppercase text-center tracking-[0.5em]"
-                            />
-                            {error && <p className="text-[10px] font-black text-rose-500 uppercase text-center mt-2">{error}</p>}
-                            <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase text-[10px] tracking-widest shadow-lg">Process Token</button>
-                        </form>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-6 px-1">Join Existing Node</h3>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase mb-4 leading-relaxed">If you were invited to a business, please use the secure link provided by your owner.</p>
+                        <button onClick={() => navigate('/profile')} className="w-full py-4 bg-slate-50 dark:bg-gray-800 text-slate-400 rounded-2xl text-[10px] font-bold uppercase tracking-widest">View Profile Status</button>
                     </div>
                 </div>
 

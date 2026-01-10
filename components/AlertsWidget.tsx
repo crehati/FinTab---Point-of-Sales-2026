@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
-import type { AnomalyAlert, ReceiptSettingsData, User, BusinessSettingsData } from '../types';
+import type { AnomalyAlert, ReceiptSettingsData, User, BusinessSettingsData, WorkflowRoles } from '../types';
 import { WarningIcon, CloseIcon, LightBulbIcon } from '../constants';
 
 interface AlertsWidgetProps {
@@ -15,7 +15,8 @@ interface AlertsWidgetProps {
 
 const AlertsWidget: React.FC<AlertsWidgetProps> = ({ alerts, onDismiss, onMarkRead, receiptSettings, currentUser, businessSettings }) => {
     const isOwner = currentUser.role === 'Owner' || currentUser.role === 'Super Admin';
-    const workflow = businessSettings?.workflowRoles || {};
+    // Cast to WorkflowRoles to avoid property existence errors on empty objects
+    const workflow = (businessSettings?.workflowRoles || {}) as WorkflowRoles;
 
     const activeAlerts = useMemo(() => {
         const filtered = alerts.filter(a => !a.isDismissed);

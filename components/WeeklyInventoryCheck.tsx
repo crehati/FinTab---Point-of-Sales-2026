@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
-import type { WeeklyInventoryCheck, Product, User, ReceiptSettingsData, AppPermissions, InventoryCheckItem, InventoryCheckStatus, BusinessSettingsData, BusinessProfile, CashCountSignature } from '../types';
+import type { WeeklyInventoryCheck, Product, User, ReceiptSettingsData, AppPermissions, InventoryCheckItem, InventoryCheckStatus, BusinessSettingsData, BusinessProfile, CashCountSignature, WorkflowRoles } from '../types';
 import Card from './Card';
 import EmptyState from './EmptyState';
 import ModalShell from './ModalShell';
@@ -31,7 +31,8 @@ const WeeklyInventoryCheckPage: React.FC<WeeklyInventoryCheckProps> = ({
     const itemsPerPage = 5;
 
     const isOwnerOrAdmin = currentUser?.role === 'Owner' || currentUser?.role === 'Super Admin';
-    const workflowRoles = businessSettings?.workflowRoles || {};
+    // Cast to WorkflowRoles to avoid property existence errors on empty objects
+    const workflowRoles = (businessSettings?.workflowRoles || {}) as WorkflowRoles;
 
     const canSubmitCheck = useMemo(() => {
         if (isOwnerOrAdmin) return true;

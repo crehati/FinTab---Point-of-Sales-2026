@@ -154,7 +154,7 @@ const App = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // Auth & Membership Lifecycle
+    // 1. Auth & Membership Lifecycle
     useEffect(() => {
         if (!supabaseStatus) return;
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -170,10 +170,12 @@ const App = () => {
                 };
                 setCurrentUser(user);
 
+                // Fetch memberships to determine next terminal route
                 const { data: memberships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
                 const count = memberships?.length || 0;
                 setMembershipsCount(count);
 
+                // If established, attempt to auto-select business from local vault
                 if (count > 0) {
                     const storedBizId = localStorage.getItem('fintab_active_business_id');
                     const validBiz = memberships.find(m => m.business_id === storedBizId);
@@ -181,8 +183,16 @@ const App = () => {
                         setActiveBusinessId(storedBizId);
                         setCurrentUser(prev => ({ ...prev, role: validBiz.role }));
                     }
+                } else {
+                    // Logic for brand new identities (0 nodes)
+                    // If they follow an invite link, allow them to land on /invite
+                    // Otherwise, force Owner Onboarding
+                    if (!location.pathname.startsWith('/invite') && location.pathname !== '/onboarding') {
+                        navigate('/onboarding', { replace: true });
+                    }
                 }
             } else {
+                // Clear session nodes
                 setCurrentUser(null);
                 setActiveBusinessId(null);
                 setMembershipsCount(0);
@@ -192,7 +202,7 @@ const App = () => {
         return () => subscription.unsubscribe();
     }, [supabaseStatus]);
 
-    // Ledger Sync
+    // 2. Data Synchronization based on active business node
     useEffect(() => {
         if (!activeBusinessId || !supabaseStatus) return;
         const syncRegistry = async () => {
@@ -214,38 +224,43 @@ const App = () => {
         setCurrentUser(null);
         setActiveBusinessId(null);
         setMembershipsCount(0);
-        navigate('/');
+        navigate('/', { replace: true });
     };
 
     if (isInitialLoad) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
 
-    // Routing Logic Branches
     const isAuthenticated = !!currentUser;
     const hasMemberships = membershipsCount !== null && membershipsCount > 0;
 
     return (
         <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-gray-950">
-            <div style={{ position: 'fixed', top: 0, left: 0, zIndex: 9999, background: 'rgba(15, 23, 42, 0.95)', color: 'white', fontSize: '9px', padding: '4px 10px', pointerEvents: 'none', borderBottomRightRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', fontFamily: 'monospace', backdropFilter: 'blur(4px)' }}>
-                SUPABASE: <span style={{ color: supabaseStatus ? '#22c55e' : '#eab308', fontWeight: 'bold' }}>{supabaseStatus ? 'ACTIVE' : 'INITIALIZING...'}</span>
-            </div>
             <ScrollToTop />
             <Routes>
-                {/* 1. Public / Global Paths */}
+                {/* PUBLIC ACCESS PROTOCOL */}
                 <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
-                <Route path="/onboarding" element={!isAuthenticated ? <Navigate to="/" replace /> : <Onboarding currentUser={currentUser} />} />
                 
-                {/* 2. Authentication Landing */}
+                {/* LOGIN HUB - Default Landing */}
                 <Route path="/" element={
-                    !isAuthenticated ? <Login /> : 
+                    !isAuthenticated ? <Login onEnterDemo={() => navigate('/onboarding')} /> : 
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
                     <Navigate to="/dashboard" replace />
                 } />
 
-                {/* 3. Protected Territory */}
+                {/* ONBOARDING HUB - Protected for 0-membership users */}
+                <Route path="/onboarding" element={!isAuthenticated ? <Navigate to="/" replace /> : <Onboarding currentUser={currentUser} />} />
+
+                {/* BUSINESS SELECTION HUB - Protected for established users with no active node */}
+                <Route path="/select-business" element={
+                    !isAuthenticated ? <Navigate to="/" replace /> :
+                    !hasMemberships ? <Navigate to="/onboarding" replace /> :
+                    <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} />
+                } />
+
+                {/* PROTECTED TERMINAL INTERFACE */}
                 <Route path="/*" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
-                    !activeBusinessId ? <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} /> : (
+                    !activeBusinessId ? <Navigate to="/select-business" replace /> : (
                         <div className="flex flex-1 overflow-hidden">
                             <Sidebar t={k => k} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} onLogout={handleLogout} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} />
                             <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
@@ -254,15 +269,18 @@ const App = () => {
                                     <Routes>
                                         <Route path="/dashboard" element={<Dashboard products={products} currentUser={currentUser} businessProfile={businessProfile} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                         <Route path="/inventory" element={<Inventory products={products} setProducts={setProducts} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                        <Route path="/counter" element={<Counter cart={cart} onUpdateCartItem={(p, v, q) => {
+                                        <Route path="/counter" element={<Counter cart={cart} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => {
                                             setCart(prev => {
                                                 const existing = prev.find(i => i.product.id === p.id && (!v || i.variant?.id === v.id));
                                                 if (q <= 0) return prev.filter(i => !(i.product.id === p.id && (!v || i.variant?.id === v.id)));
                                                 if (existing) return prev.map(i => (i.product.id === p.id && (!v || i.variant?.id === v.id)) ? { ...i, quantity: q } : i);
                                                 return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }];
                                             });
+                                        }} onProcessSale={async (sale) => {
+                                            // Sale logic handled by components
                                         }} onClearCart={() => setCart([])} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                         <Route path="/reports" element={<Reports t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ledgerEntries={ledgerEntries} />} />
+                                        <Route path="/users" element={<Users users={[]} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
                                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
                                     </Routes>
                                 </main>

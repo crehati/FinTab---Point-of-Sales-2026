@@ -12,6 +12,7 @@ interface MyProfileProps {
     expenses: Expense[];
     customers: Customer[];
     products: Product[];
+    netProfit: number;
     receiptSettings: ReceiptSettingsData;
     t: (key: string) => string;
     onRequestWithdrawal: (userId: string, amount: number, source: 'commission' | 'investment') => void;

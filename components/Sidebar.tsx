@@ -39,7 +39,8 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, cart, currentUs
     const [isFinanceOpen, setIsFinanceOpen] = useState(true);
     const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
-    const allNavItems = useMemo(() => ({
+    // Explicitly type the object to ensure ModuleKey compatibility
+    const allNavItems: Record<string, NavItem[]> = useMemo(() => ({
         main: [
             { to: '/dashboard', text: t('dashboard'), icon: <DashboardIcon /> },
             { to: '/today', text: t('today'), icon: <TodayIcon />, module: 'REPORTS', action: 'view_sales_reports' },

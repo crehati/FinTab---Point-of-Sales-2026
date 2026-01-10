@@ -225,7 +225,7 @@ const App = () => {
                 businessType: p.type || 'Retail', 
                 businessEmail: p.ledger_email || '', 
                 businessPhone: p.phone || '', 
-                logo: p.logo_url || null,
+                logo: p.logo || null,
                 createdBy: biz.created_by
             });
         }

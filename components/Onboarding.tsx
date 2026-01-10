@@ -14,7 +14,6 @@ const STEPS = [
 
 const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ currentUser, membershipsCount }) => {
     const navigate = useNavigate();
-    // Start at step 1 regardless of authentication to verify Legal Identity
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -29,7 +28,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
         businessType: 'Retail',
         businessEmail: currentUser?.email || '',
     });
-    const [businessPhone, setBusinessPhone] = useState({ countryCode: '+1', localPhone: ''});
+    const [businessPhone, setBusinessPhone] = useState({ countryCode: '+509', localPhone: ''});
 
     useEffect(() => {
         if (currentUser) {
@@ -52,13 +51,13 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
 
         const TIMEOUT_MS = 15000;
         const timeout = (ms: number) => new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Supabase request timed out — likely RLS blocked or network issue")), ms)
+            setTimeout(() => reject(new Error("Supabase request timed out — check your RLS policies or network.")), ms)
         );
 
         try {
             let userId = currentUser?.id;
 
-            // 1. Auth check: Use existing session or create new identity
+            // 1. Authenticate Identity
             if (!userId) {
                 const { data: authData, error: authError } = await supabase.auth.signUp({
                     email: owner.email,
@@ -68,46 +67,44 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 if (authError) throw authError;
                 userId = authData.user?.id;
             } else {
-                // Synchronize metadata for established accounts
-                const { error: updateError } = await supabase.auth.updateUser({
-                    data: { full_name: owner.fullName }
-                });
-                if (updateError) throw updateError;
+                await supabase.auth.updateUser({ data: { full_name: owner.fullName } });
             }
 
-            if (!userId) throw new Error("Identity Lost: Could not verify principal node user.");
+            if (!userId) throw new Error("Identity Check Failed: No User ID returned.");
 
             // 2. Initialize Business Node
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
             
+            const bizPayload = {
+                name: business.businessName,
+                created_by: userId, // CRITICAL: Use created_by as requested
+                profile: {
+                    ledger_email: business.businessEmail,
+                    phone: finalBusinessPhone,
+                    type: business.businessType,
+                    logo: null
+                },
+                settings: {}
+            };
+
             const bizInsert = supabase
                 .from('businesses')
-                .insert({
-                    name: business.businessName,
-                    created_by: userId, // Protocol: Use created_by instead of owner_id
-                    profile: {
-                        ledger_email: business.businessEmail,
-                        phone: finalBusinessPhone,
-                        type: business.businessType
-                    }
-                })
-                .select('id, name, profile, settings, created_by')
+                .insert(bizPayload)
+                .select('id, name')
                 .single();
 
             const bizResult = await Promise.race([bizInsert, timeout(TIMEOUT_MS)]) as any;
-            const { data: bizData, error: bizError } = bizResult;
-
-            if (bizError) {
-                setError(`[Biz Error] ${JSON.stringify(bizError)}`);
-                setLoading(false);
-                return;
+            
+            if (bizResult.error) {
+                // Handle RLS specific error
+                if (bizResult.error.code === '42501' || bizResult.error.message.includes('permission denied')) {
+                    throw new Error("ACCESS DENIED (RLS): Your database is blocking the insert. Please enable INSERT permissions for 'authenticated' users on the 'businesses' table in Supabase.");
+                }
+                throw new Error(`[Business Node Error] ${bizResult.error.message || JSON.stringify(bizResult.error)}`);
             }
 
-            if (!bizData) {
-                setError("Protocol Error: Business creation returned null data.");
-                setLoading(false);
-                return;
-            }
+            const bizData = bizResult.data;
+            if (!bizData?.id) throw new Error("Initialization Error: Business ID not returned from registry.");
 
             // 3. Authorize Principal Membership
             const memberInsert = supabase
@@ -119,20 +116,15 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 });
 
             const memberResult = await Promise.race([memberInsert, timeout(TIMEOUT_MS)]) as any;
-            const { error: memberError } = memberResult;
-
-            if (memberError) {
-                setError(`[Member Error] ${JSON.stringify(memberError)}`);
-                setLoading(false);
-                return;
-            }
+            if (memberResult.error) throw new Error(`[Membership Node Error] ${memberResult.error.message}`);
 
             localStorage.setItem('fintab_active_business_id', bizData.id);
-            setLoading(false);
             setStep(3);
         } catch (err: any) {
-            console.error("[FinTab Failure] Protocol Terminated:", err);
-            setError(err.message || "An initialization error reached the safety threshold.");
+            console.error("[Protocol Error]", err);
+            setError(err.message || "An unexpected error occurred during node synchronization.");
+        } finally {
+            // Safety Protocol: Always terminate loading state
             setLoading(false);
         }
     };
@@ -190,6 +182,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                             </header>
                             {error && (
                                 <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[11px] font-bold uppercase text-center border border-rose-100 shadow-sm animate-shake mb-4 break-all">
+                                    <WarningIcon className="w-4 h-4 mx-auto mb-2" />
                                     {error}
                                 </div>
                             )}

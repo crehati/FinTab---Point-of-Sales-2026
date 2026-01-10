@@ -171,7 +171,7 @@ const App = () => {
                 };
                 setCurrentUser(user);
 
-                // Fetch membership count to drive routing
+                // Fetch memberships to drive authority and routing logic
                 const { data: memberships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
                 const count = memberships?.length || 0;
                 const hasAuthority = memberships?.some(m => m.role === 'Owner' || m.role === 'Admin') || false;
@@ -187,7 +187,7 @@ const App = () => {
                         setCurrentUser(prev => ({ ...prev, role: validBiz.role }));
                     }
                 } else {
-                    // Force onboarding for users with no memberships who aren't on an invite path
+                    // Logic Guard: Force Onboarding for unassigned accounts unless accepting an invite
                     if (!location.pathname.startsWith('/invite') && location.pathname !== '/onboarding') {
                         navigate('/onboarding', { replace: true });
                     }
@@ -203,7 +203,7 @@ const App = () => {
         return () => subscription.unsubscribe();
     }, [supabaseStatus]);
 
-    // 2. Node Data Synchronization
+    // 2. Data Synchronization
     useEffect(() => {
         if (!activeBusinessId || !supabaseStatus) return;
         const syncRegistry = async () => {
@@ -246,30 +246,31 @@ const App = () => {
         <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-gray-950">
             <ScrollToTop />
             <Routes>
-                {/* PUBLIC & INVITE ENTRY */}
+                {/* PUBLIC: Invitation accept path */}
                 <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
                 
-                {/* ROOT: Auth Gate */}
+                {/* IDENTITY GATEWAY */}
                 <Route path="/" element={
                     !isAuthenticated ? <Login /> : 
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
                     <Navigate to="/dashboard" replace />
                 } />
 
-                {/* ONBOARDING: Protected creation path */}
+                {/* ONBOARDING: Creation path for authorized identities only */}
                 <Route path="/onboarding" element={
                     !isAuthenticated ? <Navigate to="/" replace /> : 
-                    (!canCreateNode ? <Navigate to="/select-business" replace /> : <Onboarding currentUser={currentUser} membershipsCount={membershipsCount} />)
+                    !canCreateNode ? <Navigate to="/select-business" replace /> :
+                    <Onboarding currentUser={currentUser} membershipsCount={membershipsCount} />
                 } />
 
-                {/* SELECT BUSINESS: Node selection hub */}
+                {/* SELECTION HUB */}
                 <Route path="/select-business" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
-                    <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} />
+                    <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} isOwnerAdmin={isOwnerAdmin} />
                 } />
 
-                {/* PROTECTED APP TERMINAL */}
+                {/* PROTECTED OPERATIONS HUB */}
                 <Route path="/*" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :

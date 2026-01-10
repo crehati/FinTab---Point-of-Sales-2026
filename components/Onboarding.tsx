@@ -53,23 +53,30 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
         try {
             let userId = currentUser?.id;
 
-            // 1. Auth check: Use existing session or create new
+            // 1. Auth check: Use existing session or create new identity
             if (!userId) {
                 const { data: authData, error: authError } = await supabase.auth.signUp({
                     email: owner.email,
                     password: owner.password,
                     options: { data: { full_name: owner.fullName } }
                 });
-                if (authError) throw authError;
+                if (authError) {
+                    console.error("[FinTab Auth] Registry Failure:", authError);
+                    throw authError;
+                }
                 userId = authData.user?.id;
             } else {
-                // Ensure name is synced to metadata for established accounts
-                await supabase.auth.updateUser({
+                // Synchronize metadata for established accounts
+                const { error: updateError } = await supabase.auth.updateUser({
                     data: { full_name: owner.fullName }
                 });
+                if (updateError) {
+                    console.error("[FinTab Auth] Meta Sync Failure:", updateError);
+                    throw updateError;
+                }
             }
 
-            if (!userId) throw new Error("Identity Protocol failure.");
+            if (!userId) throw new Error("Identity Lost: Could not verify principal node user.");
 
             // 2. Initialize Business Node
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
@@ -79,6 +86,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     name: business.businessName,
                     type: business.businessType,
                     owner_id: userId,
+                    created_by: userId, // Fixed: schema alignment for ownership tracking
                     profile: {
                         ledger_email: business.businessEmail,
                         phone: finalBusinessPhone
@@ -87,9 +95,12 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 .select()
                 .single();
 
-            if (bizError) throw bizError;
+            if (bizError) {
+                console.error("[FinTab Grid] Node Creation Violation:", bizError);
+                throw bizError;
+            }
 
-            // 3. Establish Ownership Membership
+            // 3. Authorize Principal Membership
             const { error: memberError } = await supabase
                 .from('memberships')
                 .insert({
@@ -98,13 +109,17 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     role: 'Owner'
                 });
 
-            if (memberError) throw memberError;
+            if (memberError) {
+                console.error("[FinTab Grid] Authorization Failure:", memberError);
+                throw memberError;
+            }
 
             localStorage.setItem('fintab_active_business_id', bizData.id);
             setLoading(false);
             setStep(3);
-        } catch (err) {
-            setError(err.message || "A protocol initialization error occurred.");
+        } catch (err: any) {
+            console.error("[FinTab Failure] Protocol Terminated:", err);
+            setError(err.message || "An initialization error reached the safety threshold.");
             setLoading(false);
         }
     };
@@ -139,7 +154,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                                     </>
                                 ) : (
                                     <div className="p-4 bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-800">
-                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Email</p>
+                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Account</p>
                                         <p className="text-xs font-bold text-slate-900 dark:text-white">{owner.email}</p>
                                     </div>
                                 )}
@@ -161,7 +176,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
                             </header>
                             {error && (
-                                <div className="p-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase text-center border border-rose-100">
+                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[11px] font-bold uppercase text-center border border-rose-100 shadow-sm animate-shake mb-4">
                                     {error}
                                 </div>
                             )}
@@ -179,11 +194,11 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                                 <Input label="Official Ledger Email" value={business.businessEmail} onChange={e => setBusiness({...business, businessEmail: e.target.value})} placeholder="hq@business.io" />
                             </div>
                             <div className="flex gap-3">
-                                <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest">Back</button>
+                                <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest" disabled={loading}>Back</button>
                                 <button 
                                     onClick={handleRegistrationSubmit} 
                                     disabled={loading || !business.businessName}
-                                    className="flex-[2] bg-primary text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-98 transition-all flex items-center justify-center gap-2"
+                                    className="flex-[2] bg-primary text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
                                     {loading ? <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Initialize Grid'}
                                 </button>
@@ -211,7 +226,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                 </div>
 
                 {step < 3 && (
-                    <button onClick={() => navigate('/')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8">Abort Protocol</button>
+                    <button onClick={() => navigate('/')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8" disabled={loading}>Abort Protocol</button>
                 )}
             </div>
         </div>
@@ -221,7 +236,7 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
 const Input: React.FC<any> = ({ label, ...props }) => (
     <div className="space-y-1">
         <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 block">{label}</label>
-        <input className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-xl p-3.5 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" {...props} />
+        <input className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-xl p-3.5 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" {...props} />
     </div>
 );
 

@@ -10,9 +10,10 @@ interface SelectBusinessProps {
     currentUser: User;
     onSelect: (businessId: string) => void;
     onLogout: () => void;
+    isOwnerAdmin: boolean;
 }
 
-const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, onLogout }) => {
+const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, onLogout, isOwnerAdmin }) => {
     const navigate = useNavigate();
     const [myMemberships, setMyMemberships] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -31,12 +32,6 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
         };
         fetchMemberships();
     }, [currentUser.id]);
-
-    const canCreateBusiness = useMemo(() => {
-        // High Authority Check: Only allow business creation if user is Owner/Admin in any of their existing nodes
-        if (myMemberships.length === 0) return true; // Initial entry handled by route guard usually
-        return myMemberships.some(m => m.role === 'Owner' || m.role === 'Admin');
-    }, [myMemberships]);
 
     const handleManualTokenSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -87,8 +82,8 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                         </div>
                     )}
 
-                    {/* Authority Guard: Enrollment Path */}
-                    {myMemberships.length > 0 && canCreateBusiness && (
+                    {/* Authority Guard: Additional Node Enrollment visible only to Owners/Admins */}
+                    {myMemberships.length > 0 && isOwnerAdmin && (
                         <button 
                             onClick={() => navigate('/onboarding')}
                             className="w-full flex items-center justify-center gap-3 p-5 bg-primary/5 text-primary border-2 border-dashed border-primary/20 rounded-[2rem] hover:bg-primary/10 transition-all group"

@@ -207,11 +207,17 @@ const App = () => {
     useEffect(() => {
         if (!activeBusinessId || !supabaseStatus) return;
         const syncRegistry = async () => {
-            const { data: biz } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
+            // CRITICAL FIX: Explicitly select verified columns only. 'email' and 'type' are derived from profile JSONB.
+            const { data: biz } = await supabase
+                .from('businesses')
+                .select('id, name, profile, settings, created_by, logo_url')
+                .eq('id', activeBusinessId)
+                .single();
+            
             if (biz) setBusinessProfile({ 
                 id: biz.id, 
                 businessName: biz.name, 
-                businessType: biz.type, 
+                businessType: biz.profile?.type || 'Retail', 
                 businessEmail: biz.profile?.ledger_email || '', 
                 businessPhone: biz.profile?.phone || '', 
                 logo: biz.logo_url 

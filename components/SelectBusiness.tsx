@@ -24,7 +24,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
             setIsLoading(true);
             const { data } = await supabase
                 .from('memberships')
-                .select('role, business_id, businesses(name, type)')
+                .select('role, business_id, businesses(name, profile)')
                 .eq('user_id', currentUser.id);
             
             if (data) setMyMemberships(data);

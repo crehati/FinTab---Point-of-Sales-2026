@@ -79,20 +79,20 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
             if (!userId) throw new Error("Identity Lost: Could not verify principal node user.");
 
             // 2. Initialize Business Node
+            // SCHEMA ALIGNMENT: Store ledger_email and phone inside profile. Remove top-level email/type/owner_id.
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
             const { data: bizData, error: bizError } = await supabase
                 .from('businesses')
                 .insert({
                     name: business.businessName,
-                    type: business.businessType,
-                    owner_id: userId,
-                    created_by: userId, // Fixed: schema alignment for ownership tracking
+                    created_by: userId,
                     profile: {
                         ledger_email: business.businessEmail,
-                        phone: finalBusinessPhone
+                        phone: finalBusinessPhone,
+                        type: business.businessType
                     }
                 })
-                .select()
+                .select('id, name, profile, settings, created_by')
                 .single();
 
             if (bizError) {

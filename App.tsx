@@ -171,7 +171,7 @@ const App = () => {
         const syncIdentity = async (session) => {
             if (!session?.user) {
                 if (mounted) {
-                    console.log('[FinTab Auth] syncIdentity: No session, clearing');
+                    console.log('[FinTab Auth] Clearing currentUser');
                     setCurrentUser(null);
                     setMembershipsCount(0);
                     setIsAuthLoading(false);
@@ -179,7 +179,7 @@ const App = () => {
                 return;
             }
 
-            console.log('[FinTab Auth] syncIdentity: session found, user:', session.user.id);
+            console.log(`[FinTab Auth] Syncing identity for ${session.user.id}`);
             const { data: memberships, error } = await supabase
                 .from('memberships')
                 .select('business_id, role')
@@ -188,11 +188,10 @@ const App = () => {
             if (!mounted) return;
 
             if (error) {
-                console.error("[FinTab Auth] syncIdentity: Membership fetch error:", error);
+                console.error("[FinTab Auth] Membership fetch error:", error);
                 setMembershipsCount(0);
             } else {
                 const count = memberships?.length || 0;
-                console.log('[FinTab Auth] syncIdentity: memberships found:', count);
                 setMembershipsCount(count);
 
                 const role = memberships?.[0]?.role || 'Staff';
@@ -222,11 +221,11 @@ const App = () => {
             if (!mounted) return;
             
             if (session) {
-                console.log('[FinTab Auth] Boot: session existing for', session.user.id);
+                console.log('[FinTab Auth] Boot: session valid');
                 setAuthUserId(session.user.id);
                 syncIdentity(session);
             } else {
-                console.log('[FinTab Auth] Boot: no initial session');
+                console.log('[FinTab Auth] Boot: no session');
                 setAuthUserId(null);
                 setIsAuthLoading(false);
             }
@@ -236,7 +235,7 @@ const App = () => {
 
         const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
             const uid = session?.user?.id || null;
-            console.log(`[FinTab Auth] Event: ${event}, UID: ${uid}`);
+            console.log(`[FinTab Auth] Event: ${event}, UID: ${uid}, session exists: ${!!session}`);
             setAuthUserId(uid);
             
             if (event === 'SIGNED_OUT') {
@@ -262,14 +261,15 @@ const App = () => {
     // Navigation Guard Effect
     useEffect(() => {
         const path = location.pathname;
-        console.log(`[FinTab Nav] Check: path=${path}, loading=${isAuthLoading}, authed=${!!authUserId}, biz=${activeBusinessId}, count=${membershipsCount}`);
+        console.log(`[FinTab Nav] loc.path: ${path}, win.path: ${window.location.pathname}, win.hash: ${window.location.hash}`);
+        console.log(`[FinTab Nav] State: loading=${isAuthLoading}, authed=${!!authUserId}, biz=${activeBusinessId}`);
 
         if (isAuthLoading) return;
         
         if (logoutJustHappenedRef.current) {
-            console.log('[FinTab Nav] Branch: Logout blocking');
+            console.log('[FinTab Nav] Blocking post-logout redirect');
             logoutJustHappenedRef.current = false;
-            if (location.pathname !== '/') navigate('/', { replace: true });
+            if (path !== '/') navigate('/', { replace: true });
             return;
         }
         
@@ -278,12 +278,12 @@ const App = () => {
         
         if (!authUserId) {
             if (!isPublicPath) {
-                console.log('[FinTab Nav] Branch: Redirect to root (unauthorized)');
+                console.log('[FinTab Nav] Branch: -> root (unauthed)');
                 navigate('/', { replace: true });
             }
         } else if (path === '/' || path === '/login') {
             if (activeBusinessId && membershipsCount > 0) {
-                 console.log('[FinTab Nav] Branch: Redirect to dashboard (authorized)');
+                 console.log('[FinTab Nav] Branch: -> dashboard (authed)');
                  navigate('/dashboard', { replace: true });
             }
         }
@@ -291,12 +291,12 @@ const App = () => {
 
     // Handlers
     const handleLogout = async () => {
-        console.log('[FinTab Auth] Logout clicked');
+        console.log('[FinTab Auth] handleLogout: Triggered');
         logoutJustHappenedRef.current = true;
         const result = await supabase.auth.signOut();
-        console.log('[FinTab Auth] SignOut result:', result);
+        console.log('[FinTab Auth] handleLogout: SignOut result', result);
         const { data: { session } } = await supabase.auth.getSession();
-        console.log('[FinTab Auth] Verification: Session after logout exists?', !!session);
+        console.log('[FinTab Auth] handleLogout: session exists?', !!session);
         
         setAuthUserId(null);
         setCurrentUser(null);

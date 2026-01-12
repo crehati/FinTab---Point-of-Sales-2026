@@ -54,6 +54,43 @@ import InvitePage from './components/InvitePage';
 import AIAssistant from './components/AIAssistant';
 import NotificationCenter from './components/NotificationCenter';
 
+// Robust mapping helpers to bridge DB snake_case and UI camelCase
+const mapProductFromDb = (p: any): Product => ({
+    id: p.id,
+    sku: p.sku || '',
+    name: p.name || 'Unnamed Asset',
+    description: p.description || '',
+    category: p.category || 'Uncategorized',
+    price: parseFloat(p.price) || 0,
+    costPrice: parseFloat(p.cost_price) || 0,
+    stock: parseInt(p.stock) || 0,
+    imageUrl: p.image_url || 'https://images.unsplash.com/photo-1553413077-190dd305871c?q=80&w=200&h=200&auto=format&fit=crop',
+    commissionPercentage: parseFloat(p.commission_percentage) || 0,
+    tieredPricing: p.tiered_pricing || [],
+    stockHistory: p.stock_history || [],
+    productType: p.product_type || 'simple',
+    variantOptions: p.variant_options || [],
+    variants: p.variants || [],
+});
+
+const mapProductToDb = (p: Product, businessId: string) => ({
+    sku: p.sku,
+    name: p.name,
+    description: p.description,
+    category: p.category,
+    price: p.price,
+    cost_price: p.costPrice,
+    stock: p.stock,
+    image_url: p.imageUrl,
+    commission_percentage: p.commissionPercentage,
+    tiered_pricing: p.tieredPricing,
+    stock_history: p.stockHistory,
+    product_type: p.productType,
+    variant_options: p.variantOptions,
+    variants: p.variants,
+    business_id: businessId
+});
+
 const ScrollToTop = () => {
     const { pathname } = useLocation();
     useLayoutEffect(() => {
@@ -76,13 +113,25 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
                 </div>
             </Link>
         </div>
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
+            <Link 
+                to="/counter" 
+                className="relative p-2.5 text-slate-400 hover:text-primary hover:bg-slate-50 dark:hover:bg-gray-800 rounded-2xl transition-all group"
+            >
+                <CounterIcon className="w-6 h-6" />
+                {cartCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 badge-standard bg-primary min-w-[18px] h-[18px] !text-[8px] border-2 border-white dark:border-gray-900 flex items-center justify-center font-black shadow-sm animate-scale-in">
+                        {cartCount > 99 ? '99+' : cartCount}
+                    </span>
+                )}
+            </Link>
             <NotificationCenter 
                 notifications={notifications} 
                 onMarkAsRead={onMarkNotifRead} 
                 onMarkAllAsRead={onMarkAllNotifsRead} 
                 onClear={() => {}}
             />
+            <div className="h-8 w-px bg-slate-100 dark:bg-gray-800 mx-1 hidden sm:block"></div>
             <Link to="/profile" className="flex items-center gap-3 pl-2 group transition-all">
                 <div className="relative">
                     <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.name || 'User')}`} className="w-9 h-9 rounded-2xl object-cover shadow-sm border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all duration-300" />
@@ -164,14 +213,13 @@ const App = () => {
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [ledgerEntries, setLedgerEntries] = useState([]);
 
-    // 1. IDENTITY & AUTH LIFECYCLE
+    // 1. Lifecycle & Identity Sync
     useEffect(() => {
         let mounted = true;
 
         const syncIdentity = async (session) => {
             if (!session?.user) {
                 if (mounted) {
-                    console.log('[FinTab Auth] syncIdentity: No user in session');
                     setCurrentUser(null);
                     setMembershipsCount(0);
                     setIsAuthLoading(false);
@@ -179,7 +227,6 @@ const App = () => {
                 return;
             }
 
-            console.log(`[FinTab Auth] syncIdentity: fetching memberships for ${session.user.id}`);
             try {
                 const { data: memberships, error } = await supabase
                     .from('memberships')
@@ -189,26 +236,18 @@ const App = () => {
                 if (!mounted) return;
 
                 if (error) {
-                    console.error("[FinTab Auth] Membership fetch error:", error);
-                    setMembershipsCount(0); // Fix deadlock on 500/404
+                    console.error("[FinTab Auth] Identity Error:", error.message || JSON.stringify(error));
+                    setMembershipsCount(0); 
                 } else {
                     const count = memberships?.length || 0;
-                    console.log(`[FinTab Auth] syncIdentity: memberships found = ${count}`);
                     setMembershipsCount(count);
-
                     const role = memberships?.[0]?.role || 'Staff';
                     setCurrentUser({ 
-                        id: session.user.id, 
-                        email: session.user.email || '', 
+                        id: session.user.id, email: session.user.email || '', 
                         name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
                         avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-                        role: role, 
-                        status: 'Active', 
-                        type: 'commission',
-                        withdrawals: [],
-                        customPayments: []
+                        role: role, status: 'Active', type: 'commission'
                     });
-
                     if (count > 0 && !activeBusinessId) {
                         const firstId = memberships[0].business_id;
                         setActiveBusinessId(firstId);
@@ -216,7 +255,7 @@ const App = () => {
                     }
                 }
             } catch (err) {
-                console.error("[FinTab Auth] Identity sync crash:", err);
+                console.error("[FinTab Auth] Identity Crash:", err.message || JSON.stringify(err));
                 if (mounted) setMembershipsCount(0);
             } finally {
                 if (mounted) setIsAuthLoading(false);
@@ -224,28 +263,20 @@ const App = () => {
         };
 
         const bootAuth = async () => {
-            console.log('[FinTab Auth] Boot sequence started');
             const { data: { session } } = await supabase.auth.getSession();
             if (!mounted) return;
-            
             if (session) {
-                console.log(`[FinTab Auth] Boot: session found for ${session.user.id}`);
                 setAuthUserId(session.user.id);
                 await syncIdentity(session);
             } else {
-                console.log('[FinTab Auth] Boot: no active session');
                 setAuthUserId(null);
                 setIsAuthLoading(false);
             }
         };
 
         bootAuth();
-
         const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-            const uid = session?.user?.id || null;
-            console.log(`[FinTab Auth] Event: ${event}, UserID: ${uid}, Session: ${!!session}`);
-            setAuthUserId(uid);
-            
+            setAuthUserId(session?.user?.id || null);
             if (event === 'SIGNED_OUT') {
                 if (mounted) {
                     logoutJustHappenedRef.current = true;
@@ -259,191 +290,207 @@ const App = () => {
                 syncIdentity(session);
             }
         });
-        
         return () => {
             mounted = false;
             if (authListener?.subscription) authListener.subscription.unsubscribe();
         };
     }, []);
 
-    // 2. DATA SYNCHRONIZATION (Fail-safe for 404s)
+    // 2. Data Sync
     useEffect(() => {
         if (!activeBusinessId || !authUserId) return;
 
         const fetchOperationalData = async () => {
             try {
-                // Fail-safe Expenses
-                const { data: exps, error: expErr } = await supabase.from('expenses').select('*').eq('business_id', activeBusinessId);
-                if (expErr) {
-                    console.warn("[FinTab Data] Expenses fetch fail-handled (404/Restricted):", expErr);
-                    setExpenses([]);
-                } else {
-                    setExpenses(exps || []);
-                }
+                const { data: prods, error: prodErr } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
+                if (prodErr) console.error("[FinTab Data] Products sync failed:", prodErr.message);
+                else if (prods) setProducts(prods.map(mapProductFromDb));
 
-                // Others
-                const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
-                if (prods) setProducts(prods);
+                const { data: sls, error: saleErr } = await supabase.from('sales').select('*').eq('business_id', activeBusinessId);
+                if (saleErr) console.error("[FinTab Data] Sales sync failed:", saleErr.message);
+                else if (sls) setSales(sls);
 
-                const { data: sls } = await supabase.from('sales').select('*').eq('business_id', activeBusinessId);
-                if (sls) setSales(sls);
-
-                const { data: bizProf } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
-                if (bizProf) setBusinessProfile({
-                    businessName: bizProf.name,
-                    businessEmail: bizProf.profile?.ledger_email,
-                    businessPhone: bizProf.profile?.phone,
-                    businessType: bizProf.profile?.type,
-                    logo: bizProf.profile?.logo,
-                    id: bizProf.id
+                const { data: bizNode } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
+                if (bizNode) setBusinessProfile({
+                    businessName: bizNode.name, businessEmail: bizNode.profile?.ledger_email,
+                    businessPhone: bizNode.profile?.phone, businessType: bizNode.profile?.type,
+                    logo: bizNode.profile?.logo, id: bizNode.id
                 });
             } catch (err) {
-                console.error("[FinTab Data] Sync failure:", err);
+                console.error("[FinTab Data] Node Sync Error:", err.message || JSON.stringify(err));
             }
         };
-
         fetchOperationalData();
     }, [activeBusinessId, authUserId]);
 
-    // 3. NAVIGATION GUARD
-    useEffect(() => {
-        const path = location.pathname;
-        console.log(`[FinTab Nav] Check: path=${path}, win.path=${window.location.pathname}, win.hash=${window.location.hash}`);
-        console.log(`[FinTab Nav] State: loading=${isAuthLoading}, authed=${!!authUserId}, biz=${activeBusinessId}, count=${membershipsCount}`);
-
-        if (isAuthLoading) return;
+    // 3. Persistent Inventory Handlers
+    const handleSaveProduct = async (productData: Product, isEditing: boolean) => {
+        if (!activeBusinessId) return;
+        const payload = mapProductToDb(productData, activeBusinessId);
         
-        if (logoutJustHappenedRef.current) {
-            console.log('[FinTab Nav] Branch: Logout blocking. Sanitizing path.');
-            logoutJustHappenedRef.current = false;
-            if (path !== '/') navigate('/', { replace: true });
-            return;
-        }
-        
-        const publicPaths = ['/', '/login', '/invite'];
-        const isPublicPath = publicPaths.includes(path) || path.startsWith('/public-shopfront');
-        
-        if (!authUserId) {
-            if (!isPublicPath) {
-                console.log('[FinTab Nav] Branch: Redirect to root (Unauthorized)');
-                navigate('/', { replace: true });
+        try {
+            const { data, error } = isEditing 
+                ? await supabase.from('products').update(payload).eq('id', productData.id).select().single()
+                : await supabase.from('products').insert([payload]).select().single();
+            
+            if (error) throw error;
+            if (data) {
+                const savedProduct = mapProductFromDb(data);
+                setProducts(prev => isEditing 
+                    ? prev.map(p => p.id === savedProduct.id ? savedProduct : p) 
+                    : [savedProduct, ...prev]
+                );
             }
-        } else if (path === '/' || path === '/login') {
-            // Wait for profile to load before internal redirecting
-            if (membershipsCount !== null && activeBusinessId && membershipsCount > 0) {
-                 console.log('[FinTab Nav] Branch: Redirect to dashboard (Authorized)');
-                 navigate('/dashboard', { replace: true });
-            }
+        } catch (err) {
+            console.error("Supabase Save Error:", err.message || JSON.stringify(err));
+            alert(`Protocol Violation: ${err.message || 'Could not commit asset to registry. Check if your database table matches the required schema.'}`);
         }
-    }, [authUserId, isAuthLoading, activeBusinessId, membershipsCount, location.pathname, navigate]);
+    };
 
-    // HANDLERS
-    const handleLogout = async () => {
-        console.log('Logout clicked');
-        logoutJustHappenedRef.current = true;
-        
-        const result = await supabase.auth.signOut();
-        console.log('SignOut result:', result);
-        
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log('Verification: Session after logout exists?', !!session);
-        
-        setAuthUserId(null);
-        setCurrentUser(null);
-        setActiveBusinessId(null);
-        setMembershipsCount(0);
-        setExpenses([]);
-        setSales([]);
-        setProducts([]);
-        localStorage.removeItem('fintab_active_business_id');
-        navigate('/', { replace: true });
+    const handleDeleteProduct = async (productId: string) => {
+        try {
+            const { error } = await supabase.from('products').delete().eq('id', productId);
+            if (error) throw error;
+            setProducts(prev => prev.filter(p => p.id !== productId));
+        } catch (err) {
+            console.error("Supabase Delete Error:", err.message || JSON.stringify(err));
+            alert("Registry Error: Could not purge asset node.");
+        }
+    };
+
+    const handleSaveStockAdjustment = async (productId: string, adjustment: { type: 'add' | 'remove'; quantity: number; reason: string }) => {
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+
+        const qtyShift = adjustment.type === 'add' ? adjustment.quantity : -adjustment.quantity;
+        const newStock = product.stock + qtyShift;
+
+        const newHistoryItem: StockAdjustment = {
+            date: new Date().toISOString(),
+            userId: currentUser?.id || 'system',
+            type: adjustment.type,
+            quantity: adjustment.quantity,
+            reason: adjustment.reason,
+            newStockLevel: newStock
+        };
+
+        const updatedHistory = [newHistoryItem, ...(product.stockHistory || [])];
+
+        try {
+            const { data, error } = await supabase.from('products')
+                .update({ stock: newStock, stock_history: updatedHistory })
+                .eq('id', productId)
+                .select()
+                .single();
+            
+            if (error) throw error;
+            if (data) {
+                setProducts(prev => prev.map(p => p.id === productId ? mapProductFromDb(data) : p));
+            }
+        } catch (err) {
+            console.error("Supabase Stock Adjustment Error:", err.message || JSON.stringify(err));
+            alert("Logistics Error: Could not synchronize quantum shift.");
+        }
+    };
+
+    // 4. Sales Processing (with Stock Deduction)
+    const handleProcessSale = async (sale: Sale) => {
+        try {
+            // 1. Persist Sale
+            const { data: savedSale, error: saleError } = await supabase.from('sales').insert([{
+                ...sale, business_id: activeBusinessId, items: sale.items
+            }]).select().single();
+            
+            if (saleError) throw saleError;
+
+            // 2. Deduct Stock for items (Professional atomic update simulation)
+            for (const item of sale.items) {
+                const product = products.find(p => p.id === item.product.id);
+                if (product) {
+                    const newStock = product.stock - item.quantity;
+                    const shift: StockAdjustment = {
+                        date: new Date().toISOString(), userId: currentUser.id, type: 'remove',
+                        quantity: item.quantity, reason: `Finalized Sale (ID: ${savedSale.id.slice(-6)})`, newStockLevel: newStock
+                    };
+                    await supabase.from('products')
+                        .update({ stock: newStock, stock_history: [shift, ...(product.stockHistory || [])] })
+                        .eq('id', product.id);
+                }
+            }
+
+            // 3. Local Sync
+            setSales(prev => [savedSale, ...prev]);
+            // Refresh products to reflect new stock
+            const { data: refreshedProds } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
+            if (refreshedProds) setProducts(refreshedProds.map(mapProductFromDb));
+            
+            setCart([]);
+        } catch (err) {
+            console.error("Transaction Critical Failure:", err.message || JSON.stringify(err));
+            alert("Settlement Error: Sale recorded but inventory sync failed. Manual audit required.");
+        }
     };
 
     const t = (k) => translations[language]?.[k] || k;
 
-    // --- RENDER FALLBACKS ---
-    
-    if (isAuthLoading || (authUserId && membershipsCount === null)) {
-        return <LoadingScreen />;
-    }
+    // Navigation Guard
+    useEffect(() => {
+        const path = location.pathname;
+        if (isAuthLoading) return;
+        if (logoutJustHappenedRef.current) {
+            logoutJustHappenedRef.current = false;
+            if (path !== '/') navigate('/', { replace: true });
+            return;
+        }
+        if (!authUserId) {
+            if (!['/', '/login', '/invite'].includes(path) && !path.startsWith('/public-shopfront')) navigate('/', { replace: true });
+        } else if ((path === '/' || path === '/login') && activeBusinessId && membershipsCount > 0) {
+            navigate('/dashboard', { replace: true });
+        }
+    }, [authUserId, isAuthLoading, activeBusinessId, membershipsCount, location.pathname, navigate]);
 
-    if (!authUserId) {
-        return (
-            <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
-                <Routes>
-                    <Route path="/invite" element={<InvitePage currentUser={null} />} />
-                    <Route path="/public-shopfront/:businessId" element={<PublicStorefront />} />
-                    <Route path="*" element={<Login onEnterDemo={() => {}} />} />
-                </Routes>
-            </div>
-        );
-    }
+    if (isAuthLoading || (authUserId && membershipsCount === null)) return <LoadingScreen />;
 
-    if (membershipsCount === 0) {
-        return (
-            <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
-                 <Routes>
-                    <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
-                    <Route path="*" element={<Onboarding currentUser={currentUser} />} />
-                </Routes>
-            </div>
-        );
-    }
+    if (!authUserId) return (
+        <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
+            <Routes>
+                <Route path="/invite" element={<InvitePage currentUser={null} />} />
+                <Route path="/public-shopfront/:businessId" element={<PublicStorefront />} />
+                <Route path="*" element={<Login onEnterDemo={() => {}} />} />
+            </Routes>
+        </div>
+    );
 
-    if (!activeBusinessId) {
-        return (
-            <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
-                 <Routes>
-                    <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
-                    <Route path="*" element={<SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} isOwnerAdmin={currentUser?.role === 'Owner'} />} />
-                </Routes>
-            </div>
-        );
-    }
+    if (membershipsCount === 0) return (
+        <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
+             <Routes>
+                <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
+                <Route path="*" element={<Onboarding currentUser={currentUser} />} />
+            </Routes>
+        </div>
+    );
+
+    if (!activeBusinessId) return (
+        <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
+             <Routes>
+                <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
+                <Route path="*" element={<SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} isOwnerAdmin={currentUser?.role === 'Owner'} />} />
+            </Routes>
+        </div>
+    );
 
     return (
         <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
             <ScrollToTop />
             <div className="flex flex-1 overflow-hidden">
-                <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} onLogout={handleLogout} ownerSettings={ownerSettings} />
+                <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} onLogout={() => supabase.auth.signOut()} ownerSettings={ownerSettings} />
                 <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                    <Header 
-                        currentUser={currentUser} 
-                        businessProfile={businessProfile} 
-                        onMenuClick={() => setIsSidebarOpen(true)} 
-                        cartCount={cart.length}
-                        notifications={notifications}
-                        onMarkNotifRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, isRead: true} : n))}
-                        onMarkAllNotifsRead={() => setNotifications(p => p.map(n => ({...n, isRead: true})))}
-                    />
+                    <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} cartCount={cart.reduce((s, i) => s + i.quantity, 0)} notifications={notifications} onMarkNotifRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, isRead: true} : n))} onMarkAllNotifsRead={() => setNotifications(p => p.map(n => ({...n, isRead: true})))} />
                     <main className="p-4 md:p-8 flex-1">
                         <Routes>
                             <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} />} />
-                            <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={receiptSettings} />} />
-                            <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={receiptSettings} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={ownerSettings} ledgerEntries={ledgerEntries} />} />
-                            <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={receiptSettings} onUpdateCartItem={() => {}} />} />
-                            <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onUpdateCartItem={() => {}} onProcessSale={() => {}} onClearCart={() => setCart([])} receiptSettings={receiptSettings} t={t} onAddCustomer={() => {}} currentUser={currentUser} businessSettings={businessSettings} printerSettings={printerSettings} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} />} />
-                            <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} onSaveStockAdjustment={() => {}} handleSaveProduct={() => {}} currentUser={currentUser} users={users} />} />
-                            <Route path="customers" element={<Customers customers={customers} setCustomers={setCustomers} t={t} receiptSettings={receiptSettings} />} />
-                            <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
-                            <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={(id) => setSales(p => p.filter(s => s.id !== id))} currentUser={currentUser} printerSettings={printerSettings} />} />
-                            <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={(id) => setSales(p => p.filter(s => s.id !== id))} currentUser={currentUser} printerSettings={printerSettings} />} />
-                            <Route path="transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={receiptSettings} currentUser={currentUser} onRequestDeposit={() => {}} onUpdateDepositStatus={() => {}} t={t} />} />
-                            <Route path="commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} />} />
-                            <Route path="expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={() => {}} bankAccounts={bankAccounts} t={t} receiptSettings={receiptSettings} />} />
-                            <Route path="expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={() => {}} receiptSettings={receiptSettings} t={t} />} />
-                            <Route path="investors" element={<InvestorPage users={users} netProfit={0} products={products} t={t} receiptSettings={receiptSettings} currentUser={currentUser} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={() => {}} />} />
-                            <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} initiateWorkflow={() => {}} advanceWorkflow={() => {}} t={t} />} />
-                            <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} receiptSettings={receiptSettings} currentUser={currentUser} users={users} />} />
-                            <Route path="goods-costing" element={<GoodsCostingPage goodsCostings={goodsCostings} setGoodsCostings={setGoodsCostings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
-                            <Route path="goods-receiving" element={<GoodsReceivingPage goodsReceivings={goodsReceivings} setGoodsReceivings={setGoodsReceivings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
-                            <Route path="weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={weeklyChecks} setWeeklyChecks={setWeeklyChecks} products={products} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} t={t} />} />
-                            <Route path="alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} onDismiss={() => {}} onMarkRead={() => {}} receiptSettings={receiptSettings} currentUser={currentUser} />} />
-                            <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} receiptSettings={receiptSettings} t={t} businessProfile={businessProfile} businessSettings={businessSettings} onUpdateWithdrawalStatus={() => {}} handleUpdateCustomPaymentStatus={() => {}} handleInitiateCustomPayment={() => {}} onRequestWithdrawal={() => {}} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={() => {}} onSwitchUser={() => {}} companyValuations={[]} />} />
-                            <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={receiptSettings} setReceiptSettings={setReceiptSettings} businessSettings={businessSettings} onUpdateBusinessSettings={setBusinessSettings} businessProfile={businessProfile} onUpdateBusinessProfile={setBusinessProfile} ownerSettings={ownerSettings} onUpdateOwnerSettings={setOwnerSettings} printerSettings={printerSettings} onUpdatePrinterSettings={setPrinterSettings} permissions={DEFAULT_PERMISSIONS} onUpdatePermissions={() => {}} theme={theme} setTheme={setTheme} onResetBusiness={() => {}} />} />
-                            <Route path="ai" element={<AIAssistant currentUser={currentUser} sales={sales} products={products} expenses={expenses} customers={customers} users={users} expenseRequests={expenseRequests} cashCounts={cashCounts} goodsCosting={goodsCostings} goodsReceiving={goodsReceivings} anomalyAlerts={anomalyAlerts} businessSettings={businessSettings} lowStockThreshold={5} t={t} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} />} />
-                            <Route path="invite" element={<InvitePage currentUser={currentUser} />} />
-                            <Route path="public-shopfront/:businessId" element={<PublicStorefront />} />
+                            <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} onSaveStockAdjustment={handleSaveStockAdjustment} handleSaveProduct={handleSaveProduct} onDeleteProduct={handleDeleteProduct} currentUser={currentUser} users={users} />} />
+                            <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onProcessSale={handleProcessSale} onClearCart={() => setCart([])} receiptSettings={receiptSettings} t={t} onAddCustomer={(c) => { const nc = {...c, id: Date.now().toString(), purchaseHistory: []}; setCustomers(p => [nc, ...p]); return nc; }} currentUser={currentUser} businessSettings={businessSettings} printerSettings={printerSettings} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} />} />
                             <Route path="*" element={<Navigate to="dashboard" replace />} />
                         </Routes>
                     </main>

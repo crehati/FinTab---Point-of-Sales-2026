@@ -20,19 +20,20 @@ interface InventoryProps {
     receiptSettings: ReceiptSettingsData;
     onSaveStockAdjustment: (productId: string, adjustment: Omit<StockAdjustment, 'date' | 'userId' | 'newStockLevel'>) => void;
     handleSaveProduct: (product: Product, isEditing: boolean) => void;
+    onDeleteProduct: (productId: string) => void;
     currentUser: User;
     users: User[];
     trialLimits?: { canAddProduct: boolean };
 }
 
 const Inventory: React.FC<InventoryProps> = ({ 
-    products, setProducts, t, receiptSettings, onSaveStockAdjustment, handleSaveProduct, currentUser, users, 
+    products = [], t, receiptSettings, onSaveStockAdjustment, handleSaveProduct, onDeleteProduct, currentUser, users, 
     trialLimits = { canAddProduct: true } 
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 5;
+    const itemsPerPage = 10;
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -59,12 +60,8 @@ const Inventory: React.FC<InventoryProps> = ({
                 setOpenActionMenuId(null);
             }
         };
-        if (openActionMenuId) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
+        if (openActionMenuId) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [openActionMenuId]);
 
     const handleAddCategory = (newCategory: string) => {
@@ -93,33 +90,15 @@ const Inventory: React.FC<InventoryProps> = ({
         return filteredProducts.slice(start, start + itemsPerPage);
     }, [filteredProducts, currentPage]);
 
-    const handleOpenAddModal = () => {
-        setEditingProduct(null);
-        setIsModalOpen(true);
-    };
-
-    const handleOpenEditModal = (product: Product) => {
-        setEditingProduct(product);
-        setIsModalOpen(true);
-    };
-
-    const handleOpenAdjustModal = (product: Product) => {
-        setAdjustingProduct(product);
-        setIsAdjustModalOpen(true);
-    };
-
-    const handleOpenHistoryModal = (product: Product) => {
-        setHistoryProduct(product);
-    };
-
-    const handleDeleteProduct = (product: Product) => {
-        setProductToDelete(product);
-        setIsConfirmModalOpen(true);
-    };
+    const handleOpenAddModal = () => { setEditingProduct(null); setIsModalOpen(true); };
+    const handleOpenEditModal = (product: Product) => { setEditingProduct(product); setIsModalOpen(true); };
+    const handleOpenAdjustModal = (product: Product) => { setAdjustingProduct(product); setIsAdjustModalOpen(true); };
+    const handleOpenHistoryModal = (product: Product) => { setHistoryProduct(product); };
+    const handleDeleteClick = (product: Product) => { setProductToDelete(product); setIsConfirmModalOpen(true); };
 
     const handleConfirmDelete = () => {
         if (productToDelete) {
-            // Delete Logic could be added here if needed
+            onDeleteProduct(productToDelete.id);
             setProductToDelete(null);
         }
         setIsConfirmModalOpen(false);
@@ -133,7 +112,7 @@ const Inventory: React.FC<InventoryProps> = ({
     };
     
     const handleSaveAdjustment = (adjustment: { type: 'add' | 'remove'; quantity: number; reason: string }) => {
-        if (!adjustingProduct || !currentUser) return;
+        if (!adjustingProduct) return;
         onSaveStockAdjustment(adjustingProduct.id, adjustment);
         setIsAdjustModalOpen(false);
         setAdjustingProduct(null);
@@ -155,27 +134,25 @@ const Inventory: React.FC<InventoryProps> = ({
                     </div>
                     
                     <div className="w-full md:w-auto bg-slate-50 dark:bg-gray-800 p-6 rounded-[2rem] border border-slate-100 dark:border-gray-700 shadow-inner">
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-col sm:flex-row gap-4">
-                                <div className="min-w-[280px]">
-                                    <SearchInput
-                                        placeholder="Search inventory..."
-                                        value={searchTerm}
-                                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                                    />
-                                </div>
-                                <div className="relative">
-                                     <select
-                                        value={selectedCategory}
-                                        onChange={e => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
-                                        className={baseInputStyle}
-                                    >
-                                        <option value="all">All Classes</option>
-                                        {categories.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
-                                        ))}
-                                    </select>
-                                </div>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="min-w-[280px]">
+                                <SearchInput
+                                    placeholder="Search inventory..."
+                                    value={searchTerm}
+                                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                />
+                            </div>
+                            <div className="relative">
+                                    <select
+                                    value={selectedCategory}
+                                    onChange={e => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
+                                    className={baseInputStyle}
+                                >
+                                    <option value="all">All Classes</option>
+                                    {categories.map(cat => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -202,7 +179,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                                 <tr key={product.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                                                     <td className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter">
                                                         <div className="flex items-center">
-                                                            <img src={product.imageUrl} alt={product.name} className="w-11 h-11 rounded-xl mr-5 object-cover border-2 border-slate-50 dark:border-gray-700 shadow-sm" />
+                                                            <img src={product.imageUrl || 'https://images.unsplash.com/photo-1553413077-190dd305871c?q=80&w=200&h=200&auto=format&fit=crop'} alt={product.name} className="w-11 h-11 rounded-xl mr-5 object-cover border-2 border-slate-50 dark:border-gray-700 shadow-sm" />
                                                             <div>
                                                                 <span className="block truncate max-w-[240px] text-sm">{product.name}</span>
                                                                 <span className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{product.sku || 'SKU-PENDING'}</span>
@@ -222,9 +199,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                                             <button onClick={() => handleOpenHistoryModal(product)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-primary transition-colors">Audit</button>
                                                             <button onClick={() => handleOpenAdjustModal(product)} className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline">Shift</button>
                                                             <button onClick={() => handleOpenEditModal(product)} className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline">Edit</button>
-                                                            <button onClick={() => setLabelProduct(product)} title="Print Label" className="text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors">
-                                                                <BarcodeIcon className="w-4 h-4" />
-                                                            </button>
+                                                            <button onClick={() => handleDeleteClick(product)} className="text-[9px] font-black uppercase tracking-widest text-rose-500 hover:underline">Purge</button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -237,7 +212,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             <div className="md:hidden space-y-4">
                                 {paginatedProducts.map(product => (
                                     <div key={product.id} className="bg-white dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700 flex gap-5 relative overflow-visible">
-                                        <img src={product.imageUrl} alt={product.name} className="w-24 h-24 rounded-[2rem] object-cover flex-shrink-0 border-4 border-slate-50 dark:border-gray-700 shadow-md" />
+                                        <img src={product.imageUrl || 'https://images.unsplash.com/photo-1553413077-190dd305871c?q=80&w=200&h=200&auto=format&fit=crop'} alt={product.name} className="w-24 h-24 rounded-[2rem] object-cover flex-shrink-0 border-4 border-slate-50 dark:border-gray-700 shadow-md" />
                                         <div className="flex-grow flex flex-col justify-between py-1 min-w-0">
                                             <div className="pr-10">
                                                 <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base truncate">{product.name}</p>
@@ -268,7 +243,7 @@ const Inventory: React.FC<InventoryProps> = ({
                                                         <button onClick={() => { handleOpenHistoryModal(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">Audit Ledger</button>
                                                         <button onClick={() => { handleOpenAdjustModal(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors">Shift Units</button>
                                                         <button onClick={() => { handleOpenEditModal(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors">Edit Identity</button>
-                                                        <button onClick={() => { setLabelProduct(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">Print Asset Label</button>
+                                                        <button onClick={() => { handleDeleteClick(product); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-50 transition-colors">Purge Node</button>
                                                     </div>
                                                 )}
                                             </div>
@@ -277,7 +252,6 @@ const Inventory: React.FC<InventoryProps> = ({
                                 ))}
                             </div>
 
-                            {/* Pagination Controls */}
                             {totalPages > 1 && (
                                 <div className="mt-8 flex justify-center items-center gap-2">
                                     <button 

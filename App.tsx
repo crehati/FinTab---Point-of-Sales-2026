@@ -189,26 +189,35 @@ const App = () => {
         const count = memberships?.length || 0;
         setMembershipsCount(count);
 
-        const role = memberships?.[0]?.role || 'Staff';
-        setCurrentUser({ 
-            id: session.user.id, 
-            email: session.user.email || '', 
-            name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
-            avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-            role: role, 
-            status: 'Active', 
-            type: 'commission',
-            withdrawals: [],
-            customPayments: []
-        });
-
         if (count > 0) {
+            const role = memberships?.[0]?.role || 'Staff';
+            setCurrentUser({ 
+                id: session.user.id, 
+                email: session.user.email || '', 
+                name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
+                avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
+                role: role, 
+                status: 'Active', 
+                type: 'commission',
+                withdrawals: [],
+                customPayments: []
+            });
+
             const storedBizId = localStorage.getItem('fintab_active_business_id');
             const validBiz = memberships.find(m => m.business_id === storedBizId) || memberships[0];
             if (validBiz) {
                 setActiveBusinessId(validBiz.business_id);
                 localStorage.setItem('fintab_active_business_id', validBiz.business_id);
             }
+        } else {
+            setCurrentUser({
+                id: session.user.id,
+                email: session.user.email,
+                name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+                role: 'Staff',
+                status: 'Invited',
+                type: 'commission'
+            });
         }
         
         setIsInitialLoad(false);
@@ -221,7 +230,16 @@ const App = () => {
         return () => subscription.unsubscribe();
     }, [supabaseStatus]);
 
-    // Cart Management
+    // Handlers
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        localStorage.removeItem('fintab_active_business_id');
+        setCurrentUser(null);
+        setActiveBusinessId(null);
+        setMembershipsCount(0);
+        navigate('/', { replace: true });
+    };
+
     const onUpdateCartItem = (product: Product, variant: ProductVariant | undefined, quantity: number) => {
         setCart(prev => {
             const existingIdx = prev.findIndex(item => item.product.id === product.id && (!variant || item.variant?.id === variant.id));
@@ -272,9 +290,9 @@ const App = () => {
                 <Route path="/*" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
-                    !activeBusinessId ? <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} isOwnerAdmin={currentUser.role === 'Owner'} /> : (
+                    !activeBusinessId ? <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} isOwnerAdmin={currentUser.role === 'Owner'} /> : (
                         <div className="flex flex-1 overflow-hidden">
-                            <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} onLogout={() => supabase.auth.signOut()} ownerSettings={ownerSettings} />
+                            <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} onLogout={handleLogout} ownerSettings={ownerSettings} />
                             <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
                                 <Header 
                                     currentUser={currentUser} 
@@ -287,31 +305,31 @@ const App = () => {
                                 />
                                 <main className="p-4 md:p-8 flex-1">
                                     <Routes>
-                                        <Route path="/dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} />} />
-                                        <Route path="/today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={receiptSettings} />} />
-                                        <Route path="/reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={receiptSettings} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={ownerSettings} ledgerEntries={ledgerEntries} />} />
-                                        <Route path="/items" element={<Items products={products} cart={cart} t={t} receiptSettings={receiptSettings} onUpdateCartItem={onUpdateCartItem} />} />
-                                        <Route path="/counter" element={<Counter cart={cart} customers={customers} users={users} onUpdateCartItem={onUpdateCartItem} onProcessSale={handleProcessSale} onClearCart={() => setCart([])} receiptSettings={receiptSettings} t={t} onAddCustomer={(c) => { const nc = {...c, id: Date.now().toString(), purchaseHistory: []}; setCustomers(p => [nc, ...p]); return nc; }} currentUser={currentUser} businessSettings={businessSettings} printerSettings={printerSettings} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} />} />
-                                        <Route path="/inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} onSaveStockAdjustment={() => {}} handleSaveProduct={handleSaveProduct} currentUser={currentUser} users={users} />} />
-                                        <Route path="/customers" element={<Customers customers={customers} setCustomers={setCustomers} t={t} receiptSettings={receiptSettings} />} />
-                                        <Route path="/users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
-                                        <Route path="/receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={(id) => setSales(p => p.filter(s => s.id !== id))} currentUser={currentUser} printerSettings={printerSettings} />} />
-                                        <Route path="/proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={(id) => setSales(p => p.filter(s => s.id !== id))} currentUser={currentUser} printerSettings={printerSettings} />} />
-                                        <Route path="/transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={receiptSettings} currentUser={currentUser} onRequestDeposit={(a, d, b) => setDeposits(p => [{id: Date.now().toString(), amount: a, description: d, bank_account_id: b, user_id: currentUser.id, status: 'pending', date: new Date().toISOString()}, ...p])} onUpdateDepositStatus={(id, s) => setDeposits(p => p.map(d => d.id === id ? {...d, status: s} : d))} t={t} />} />
-                                        <Route path="/commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} />} />
-                                        <Route path="/expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={(e) => setExpenses(p => [{...e, id: Date.now().toString(), date: new Date().toISOString()}, ...p])} bankAccounts={bankAccounts} t={t} receiptSettings={receiptSettings} />} />
-                                        <Route path="/expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={(r) => setExpenseRequests(p => [{...r, id: Date.now().toString(), date: new Date().toISOString(), userId: currentUser.id, status: 'pending'}, ...p])} receiptSettings={receiptSettings} t={t} />} />
-                                        <Route path="/investors" element={<InvestorPage users={users} netProfit={0} products={products} t={t} receiptSettings={receiptSettings} currentUser={currentUser} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={async () => 'mock-id'} />} />
-                                        <Route path="/cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} initiateWorkflow={async () => 'mock-id'} advanceWorkflow={async () => true} t={t} />} />
-                                        <Route path="/bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} receiptSettings={receiptSettings} currentUser={currentUser} users={users} />} />
-                                        <Route path="/goods-costing" element={<GoodsCostingPage goodsCostings={goodsCostings} setGoodsCostings={setGoodsCostings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
-                                        <Route path="/goods-receiving" element={<GoodsReceivingPage goodsReceivings={goodsReceivings} setGoodsReceivings={setGoodsReceivings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
-                                        <Route path="/weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={weeklyChecks} setWeeklyChecks={setWeeklyChecks} products={products} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} t={t} />} />
-                                        <Route path="/alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} onDismiss={(id) => setAnomalyAlerts(p => p.map(a => a.id === id ? {...a, isDismissed: true} : a))} onMarkRead={(id) => setAnomalyAlerts(p => p.map(a => a.id === id ? {...a, isRead: true} : a))} receiptSettings={receiptSettings} currentUser={currentUser} />} />
-                                        <Route path="/profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} receiptSettings={receiptSettings} t={t} businessProfile={businessProfile} businessSettings={businessSettings} onUpdateWithdrawalStatus={() => {}} handleUpdateCustomPaymentStatus={() => {}} handleInitiateCustomPayment={() => {}} onRequestWithdrawal={() => {}} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={() => {}} onSwitchUser={() => {}} companyValuations={[]} />} />
-                                        <Route path="/settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={receiptSettings} setReceiptSettings={setReceiptSettings} businessSettings={businessSettings} onUpdateBusinessSettings={setBusinessSettings} businessProfile={businessProfile} onUpdateBusinessProfile={setBusinessProfile} ownerSettings={ownerSettings} onUpdateOwnerSettings={setOwnerSettings} printerSettings={printerSettings} onUpdatePrinterSettings={setPrinterSettings} permissions={DEFAULT_PERMISSIONS} onUpdatePermissions={() => {}} theme={theme} setTheme={setTheme} onResetBusiness={() => {}} />} />
-                                        <Route path="/ai" element={<AIAssistant currentUser={currentUser} sales={sales} products={products} expenses={expenses} customers={customers} users={users} expenseRequests={expenseRequests} cashCounts={cashCounts} goodsCosting={goodsCostings} goodsReceiving={goodsReceivings} anomalyAlerts={anomalyAlerts} businessSettings={businessSettings} lowStockThreshold={5} t={t} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} />} />
-                                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                                        <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} />} />
+                                        <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={receiptSettings} />} />
+                                        <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={receiptSettings} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={ownerSettings} ledgerEntries={ledgerEntries} />} />
+                                        <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={receiptSettings} onUpdateCartItem={onUpdateCartItem} />} />
+                                        <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onUpdateCartItem={onUpdateCartItem} onProcessSale={handleProcessSale} onClearCart={() => setCart([])} receiptSettings={receiptSettings} t={t} onAddCustomer={(c) => { const nc = {...c, id: Date.now().toString(), purchaseHistory: []}; setCustomers(p => [nc, ...p]); return nc; }} currentUser={currentUser} businessSettings={businessSettings} printerSettings={printerSettings} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} />} />
+                                        <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} onSaveStockAdjustment={() => {}} handleSaveProduct={handleSaveProduct} currentUser={currentUser} users={users} />} />
+                                        <Route path="customers" element={<Customers customers={customers} setCustomers={setCustomers} t={t} receiptSettings={receiptSettings} />} />
+                                        <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
+                                        <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={(id) => setSales(p => p.filter(s => s.id !== id))} currentUser={currentUser} printerSettings={printerSettings} />} />
+                                        <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={(id) => setSales(p => p.filter(s => s.id !== id))} currentUser={currentUser} printerSettings={printerSettings} />} />
+                                        <Route path="transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={receiptSettings} currentUser={currentUser} onRequestDeposit={(a, d, b) => setDeposits(p => [{id: Date.now().toString(), amount: a, description: d, bank_account_id: b, user_id: currentUser.id, status: 'pending', date: new Date().toISOString()}, ...p])} onUpdateDepositStatus={(id, s) => setDeposits(p => p.map(d => d.id === id ? {...d, status: s} : d))} t={t} />} />
+                                        <Route path="commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} />} />
+                                        <Route path="expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={(e) => setExpenses(p => [{...e, id: Date.now().toString(), date: new Date().toISOString()}, ...p])} bankAccounts={bankAccounts} t={t} receiptSettings={receiptSettings} />} />
+                                        <Route path="expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={(r) => setExpenseRequests(p => [{...r, id: Date.now().toString(), date: new Date().toISOString(), userId: currentUser.id, status: 'pending'}, ...p])} receiptSettings={receiptSettings} t={t} />} />
+                                        <Route path="investors" element={<InvestorPage users={users} netProfit={0} products={products} t={t} receiptSettings={receiptSettings} currentUser={currentUser} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={async () => 'mock-id'} />} />
+                                        <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} initiateWorkflow={async () => 'mock-id'} advanceWorkflow={async () => true} t={t} />} />
+                                        <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} receiptSettings={receiptSettings} currentUser={currentUser} users={users} />} />
+                                        <Route path="goods-costing" element={<GoodsCostingPage goodsCostings={goodsCostings} setGoodsCostings={setGoodsCostings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
+                                        <Route path="goods-receiving" element={<GoodsReceivingPage goodsReceivings={goodsReceivings} setGoodsReceivings={setGoodsReceivings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
+                                        <Route path="weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={weeklyChecks} setWeeklyChecks={setWeeklyChecks} products={products} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} t={t} />} />
+                                        <Route path="alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} onDismiss={(id) => setAnomalyAlerts(p => p.map(a => a.id === id ? {...a, isDismissed: true} : a))} onMarkRead={(id) => setAnomalyAlerts(p => p.map(a => a.id === id ? {...a, isRead: true} : a))} receiptSettings={receiptSettings} currentUser={currentUser} />} />
+                                        <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} receiptSettings={receiptSettings} t={t} businessProfile={businessProfile} businessSettings={businessSettings} onUpdateWithdrawalStatus={() => {}} handleUpdateCustomPaymentStatus={() => {}} handleInitiateCustomPayment={() => {}} onRequestWithdrawal={() => {}} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={() => {}} onSwitchUser={() => {}} companyValuations={[]} />} />
+                                        <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={receiptSettings} setReceiptSettings={setReceiptSettings} businessSettings={businessSettings} onUpdateBusinessSettings={setBusinessSettings} businessProfile={businessProfile} onUpdateBusinessProfile={setBusinessProfile} ownerSettings={ownerSettings} onUpdateOwnerSettings={setOwnerSettings} printerSettings={printerSettings} onUpdatePrinterSettings={setPrinterSettings} permissions={DEFAULT_PERMISSIONS} onUpdatePermissions={() => {}} theme={theme} setTheme={setTheme} onResetBusiness={() => {}} />} />
+                                        <Route path="ai" element={<AIAssistant currentUser={currentUser} sales={sales} products={products} expenses={expenses} customers={customers} users={users} expenseRequests={expenseRequests} cashCounts={cashCounts} goodsCosting={goodsCostings} goodsReceiving={goodsReceivings} anomalyAlerts={anomalyAlerts} businessSettings={businessSettings} lowStockThreshold={5} t={t} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} />} />
+                                        <Route path="*" element={<Navigate to="dashboard" replace />} />
                                     </Routes>
                                 </main>
                                 <BottomNavBar t={t} cart={cart} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} />

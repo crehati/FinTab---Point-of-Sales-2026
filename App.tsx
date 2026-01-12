@@ -38,6 +38,7 @@ import Counter from './components/Counter';
 import Proforma from './components/Proforma';
 import Commission from './components/Commission';
 import Expenses from './components/Expenses';
+import ExpenseRequestPage from './components/ExpenseRequestPage';
 import MyProfile from './components/MyProfile';
 import Settings from './components/Settings';
 import SelectBusiness from './components/SelectBusiness';
@@ -52,6 +53,7 @@ import PublicStorefront from './components/PublicStorefront';
 import BankAccountsPage from './components/BankAccounts';
 import InvitePage from './components/InvitePage';
 import AIAssistant from './components/AIAssistant';
+import NotificationCenter from './components/NotificationCenter';
 
 const ScrollToTop = () => {
     const { pathname } = useLocation();
@@ -62,14 +64,12 @@ const ScrollToTop = () => {
     return null;
 };
 
-const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cartCount }) => (
+const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cartCount, onMarkNotifRead, onMarkAllNotifsRead }) => (
     <header className="h-16 flex items-center justify-between px-6 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-slate-100 dark:border-gray-800 z-50 sticky top-0 flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-4">
-            <div className="flex items-center">
-                <button onClick={onMenuClick} className="lg:hidden p-2.5 text-slate-500 hover:bg-slate-50 dark:hover:bg-gray-800 rounded-2xl transition-all active:scale-95">
-                    <MenuIcon />
-                </button>
-            </div>
+            <button onClick={onMenuClick} className="lg:hidden p-2.5 text-slate-500 hover:bg-slate-50 dark:hover:bg-gray-800 rounded-2xl transition-all active:scale-95">
+                <MenuIcon />
+            </button>
             <Link to="/dashboard" className="flex items-center gap-3 group transition-all">
                 <div className="hidden sm:block">
                     <h1 className="text-base font-black text-primary uppercase tracking-tight leading-none group-hover:text-blue-700 transition-colors">{businessProfile?.businessName || 'FinTab'}</h1>
@@ -78,6 +78,12 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             </Link>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
+            <NotificationCenter 
+                notifications={notifications} 
+                onMarkAsRead={onMarkNotifRead} 
+                onMarkAllAsRead={onMarkAllNotifsRead} 
+                onClear={() => {}}
+            />
             <Link to="/profile" className="flex items-center gap-3 pl-2 group transition-all">
                 <div className="relative">
                     <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.name || 'User')}`} className="w-9 h-9 rounded-2xl object-cover shadow-sm border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all duration-300" />
@@ -118,7 +124,6 @@ const App = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
     const [membershipsCount, setMembershipsCount] = useState<number | null>(null);
-    const [isOwnerAdmin, setIsOwnerAdmin] = useState(false);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [supabaseStatus, setSupabaseStatus] = useState(isSupabaseActive());
@@ -148,6 +153,7 @@ const App = () => {
     const [goodsCostings, setGoodsCostings] = useState<GoodsCosting[]>([]);
     const [goodsReceivings, setGoodsReceivings] = useState<GoodsReceiving[]>([]);
     const [weeklyChecks, setWeeklyChecks] = useState<WeeklyInventoryCheck[]>([]);
+    const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -191,7 +197,9 @@ const App = () => {
             avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
             role: role, 
             status: 'Active', 
-            type: 'commission'
+            type: 'commission',
+            withdrawals: [],
+            customPayments: []
         });
 
         if (count > 0) {
@@ -268,7 +276,15 @@ const App = () => {
                         <div className="flex flex-1 overflow-hidden">
                             <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} onLogout={() => supabase.auth.signOut()} ownerSettings={ownerSettings} />
                             <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                                <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} cartCount={cart.length} />
+                                <Header 
+                                    currentUser={currentUser} 
+                                    businessProfile={businessProfile} 
+                                    onMenuClick={() => setIsSidebarOpen(true)} 
+                                    cartCount={cart.length}
+                                    notifications={notifications}
+                                    onMarkNotifRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, isRead: true} : n))}
+                                    onMarkAllNotifsRead={() => setNotifications(p => p.map(n => ({...n, isRead: true})))}
+                                />
                                 <main className="p-4 md:p-8 flex-1">
                                     <Routes>
                                         <Route path="/dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} />} />
@@ -284,6 +300,7 @@ const App = () => {
                                         <Route path="/transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={receiptSettings} currentUser={currentUser} onRequestDeposit={(a, d, b) => setDeposits(p => [{id: Date.now().toString(), amount: a, description: d, bank_account_id: b, user_id: currentUser.id, status: 'pending', date: new Date().toISOString()}, ...p])} onUpdateDepositStatus={(id, s) => setDeposits(p => p.map(d => d.id === id ? {...d, status: s} : d))} t={t} />} />
                                         <Route path="/commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} />} />
                                         <Route path="/expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={(e) => setExpenses(p => [{...e, id: Date.now().toString(), date: new Date().toISOString()}, ...p])} bankAccounts={bankAccounts} t={t} receiptSettings={receiptSettings} />} />
+                                        <Route path="/expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={(r) => setExpenseRequests(p => [{...r, id: Date.now().toString(), date: new Date().toISOString(), userId: currentUser.id, status: 'pending'}, ...p])} receiptSettings={receiptSettings} t={t} />} />
                                         <Route path="/investors" element={<InvestorPage users={users} netProfit={0} products={products} t={t} receiptSettings={receiptSettings} currentUser={currentUser} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={async () => 'mock-id'} />} />
                                         <Route path="/cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} initiateWorkflow={async () => 'mock-id'} advanceWorkflow={async () => true} t={t} />} />
                                         <Route path="/bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} receiptSettings={receiptSettings} currentUser={currentUser} users={users} />} />
@@ -291,7 +308,7 @@ const App = () => {
                                         <Route path="/goods-receiving" element={<GoodsReceivingPage goodsReceivings={goodsReceivings} setGoodsReceivings={setGoodsReceivings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
                                         <Route path="/weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={weeklyChecks} setWeeklyChecks={setWeeklyChecks} products={products} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} t={t} />} />
                                         <Route path="/alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} onDismiss={(id) => setAnomalyAlerts(p => p.map(a => a.id === id ? {...a, isDismissed: true} : a))} onMarkRead={(id) => setAnomalyAlerts(p => p.map(a => a.id === id ? {...a, isRead: true} : a))} receiptSettings={receiptSettings} currentUser={currentUser} />} />
-                                        <Route path="/profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} receiptSettings={receiptSettings} t={t} businessProfile={businessProfile} businessSettings={businessSettings} />} />
+                                        <Route path="/profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} receiptSettings={receiptSettings} t={t} businessProfile={businessProfile} businessSettings={businessSettings} onUpdateWithdrawalStatus={() => {}} handleUpdateCustomPaymentStatus={() => {}} handleInitiateCustomPayment={() => {}} onRequestWithdrawal={() => {}} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={() => {}} onSwitchUser={() => {}} companyValuations={[]} />} />
                                         <Route path="/settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={receiptSettings} setReceiptSettings={setReceiptSettings} businessSettings={businessSettings} onUpdateBusinessSettings={setBusinessSettings} businessProfile={businessProfile} onUpdateBusinessProfile={setBusinessProfile} ownerSettings={ownerSettings} onUpdateOwnerSettings={setOwnerSettings} printerSettings={printerSettings} onUpdatePrinterSettings={setPrinterSettings} permissions={DEFAULT_PERMISSIONS} onUpdatePermissions={() => {}} theme={theme} setTheme={setTheme} onResetBusiness={() => {}} />} />
                                         <Route path="/ai" element={<AIAssistant currentUser={currentUser} sales={sales} products={products} expenses={expenses} customers={customers} users={users} expenseRequests={expenseRequests} cashCounts={cashCounts} goodsCosting={goodsCostings} goodsReceiving={goodsReceivings} anomalyAlerts={anomalyAlerts} businessSettings={businessSettings} lowStockThreshold={5} t={t} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} />} />
                                         <Route path="*" element={<Navigate to="/dashboard" replace />} />

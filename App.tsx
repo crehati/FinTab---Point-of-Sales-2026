@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useMemo, useLayoutEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { supabase, isSupabaseActive } from './lib/supabase';
 import { getStoredItem, setStoredItemAndDispatchEvent, getSystemLogo, formatCurrency, isRateLimited } from './lib/utils';
@@ -132,7 +132,8 @@ const App = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeBusinessId, setActiveBusinessId] = useState<string | null>(localStorage.getItem('fintab_active_business_id'));
     const [membershipsCount, setMembershipsCount] = useState<number | null>(null);
-    const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const [isAuthLoading, setIsAuthLoading] = useState(true);
+    const logoutJustHappenedRef = useRef(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [language, setLanguage] = useState('en');
     const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -164,14 +165,15 @@ const App = () => {
 
     // Lifecycle Synchronization
     useEffect(() => {
-        const syncIdentity = async () => {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const session = sessionData?.session;
+        let mounted = true;
 
+        const syncIdentity = async (session) => {
             if (!session?.user) {
-                setCurrentUser(null);
-                setMembershipsCount(0);
-                setIsInitialLoad(false);
+                if (mounted) {
+                    setCurrentUser(null);
+                    setMembershipsCount(0);
+                    setIsAuthLoading(false);
+                }
                 return;
             }
 
@@ -180,6 +182,8 @@ const App = () => {
                 .select('business_id, role')
                 .eq('user_id', session.user.id);
             
+            if (!mounted) return;
+
             if (error) {
                 console.error("Membership fetch error:", error);
                 setMembershipsCount(0);
@@ -206,43 +210,61 @@ const App = () => {
                     localStorage.setItem('fintab_active_business_id', firstId);
                 }
             }
-            setIsInitialLoad(false);
+            setIsAuthLoading(false);
         };
 
-        syncIdentity();
-        
-        // Safety wrapper for authListener which might be a promise or result in early lifecycle
-        const initAuthListener = async () => {
-            const listener = await supabase.auth.onAuthStateChange((_event, session) => {
-                if (_event === 'SIGNED_OUT') {
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT') {
+                if (mounted) {
+                    logoutJustHappenedRef.current = true;
                     setCurrentUser(null);
                     setActiveBusinessId(null);
                     setMembershipsCount(0);
+                    setIsAuthLoading(false);
                     localStorage.removeItem('fintab_active_business_id');
-                    navigate('/', { replace: true });
-                } else if (session) {
-                    syncIdentity();
                 }
-            });
-            return listener;
-        };
-
-        const authPromise = initAuthListener();
+            } else {
+                syncIdentity(session);
+            }
+        });
         
         return () => {
-            authPromise.then(res => {
-                if (res?.data?.subscription) res.data.subscription.unsubscribe();
-            });
+            mounted = false;
+            if (authListener?.subscription) authListener.subscription.unsubscribe();
         };
-    }, [navigate]);
+    }, []);
+
+    // Navigation Guard Effect
+    useEffect(() => {
+        if (isAuthLoading) return;
+        if (logoutJustHappenedRef.current) {
+            logoutJustHappenedRef.current = false;
+            if (location.pathname !== '/') navigate('/', { replace: true });
+            return;
+        }
+        
+        const path = location.pathname;
+        const publicPaths = ['/', '/login', '/invite'];
+        const isPublicPath = publicPaths.includes(path) || path.startsWith('/public-shopfront');
+        
+        if (!currentUser && !isPublicPath) {
+            if (path !== '/') navigate('/', { replace: true });
+        } else if (currentUser && membershipsCount > 0 && activeBusinessId) {
+            if ((path === '/' || path === '/login') && path !== '/dashboard') {
+                navigate('/dashboard', { replace: true });
+            }
+        }
+    }, [currentUser, isAuthLoading, activeBusinessId, membershipsCount, location.pathname, navigate]);
 
     // Handlers
     const handleLogout = async () => {
         await supabase.auth.signOut();
-        localStorage.removeItem('fintab_active_business_id');
+        logoutJustHappenedRef.current = true;
         setCurrentUser(null);
         setActiveBusinessId(null);
         setMembershipsCount(0);
+        localStorage.removeItem('fintab_active_business_id');
+        if (location.pathname !== '/') navigate('/', { replace: true });
     };
 
     const onUpdateCartItem = (product, variant, quantity) => {
@@ -282,14 +304,12 @@ const App = () => {
 
     const t = (k) => translations[language]?.[k] || k;
 
-    // --- STRICT WATERFALL IDENTITY GUARDS ---
+    // --- WATERFALL IDENTITY RENDERS ---
     
-    // 1. BOOT GUARD: Block all rendering until initialization and membership check resolves
-    if (isInitialLoad || membershipsCount === null) {
+    if (isAuthLoading || membershipsCount === null) {
         return <LoadingScreen />;
     }
 
-    // 2. AUTH GUARD: Not logged in or session expired
     if (!currentUser) {
         return (
             <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
@@ -302,7 +322,6 @@ const App = () => {
         );
     }
 
-    // 3. MEMBERSHIP GUARD: Logged in but no business node access
     if (membershipsCount === 0) {
         return (
             <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
@@ -314,7 +333,6 @@ const App = () => {
         );
     }
 
-    // 4. BUSINESS SELECTION GUARD: Logged in and has access, but no specific node selected
     if (!activeBusinessId) {
         return (
             <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
@@ -326,7 +344,6 @@ const App = () => {
         );
     }
 
-    // 5. AUTHORIZED APPLICATION SHELL: All security checks PASSED
     return (
         <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
             <ScrollToTop />

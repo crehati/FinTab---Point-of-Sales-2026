@@ -129,6 +129,7 @@ const App = () => {
     const location = useLocation();
     
     // Identity State
+    const [authUserId, setAuthUserId] = useState<string | null>(null);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeBusinessId, setActiveBusinessId] = useState<string | null>(localStorage.getItem('fintab_active_business_id'));
     const [membershipsCount, setMembershipsCount] = useState<number | null>(null);
@@ -170,6 +171,7 @@ const App = () => {
         const syncIdentity = async (session) => {
             if (!session?.user) {
                 if (mounted) {
+                    console.log('[FinTab Auth] syncIdentity: No session, clearing');
                     setCurrentUser(null);
                     setMembershipsCount(0);
                     setIsAuthLoading(false);
@@ -177,6 +179,7 @@ const App = () => {
                 return;
             }
 
+            console.log('[FinTab Auth] syncIdentity: session found, user:', session.user.id);
             const { data: memberships, error } = await supabase
                 .from('memberships')
                 .select('business_id, role')
@@ -185,10 +188,11 @@ const App = () => {
             if (!mounted) return;
 
             if (error) {
-                console.error("Membership fetch error:", error);
+                console.error("[FinTab Auth] syncIdentity: Membership fetch error:", error);
                 setMembershipsCount(0);
             } else {
                 const count = memberships?.length || 0;
+                console.log('[FinTab Auth] syncIdentity: memberships found:', count);
                 setMembershipsCount(count);
 
                 const role = memberships?.[0]?.role || 'Staff';
@@ -213,7 +217,28 @@ const App = () => {
             setIsAuthLoading(false);
         };
 
+        const bootAuth = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!mounted) return;
+            
+            if (session) {
+                console.log('[FinTab Auth] Boot: session existing for', session.user.id);
+                setAuthUserId(session.user.id);
+                syncIdentity(session);
+            } else {
+                console.log('[FinTab Auth] Boot: no initial session');
+                setAuthUserId(null);
+                setIsAuthLoading(false);
+            }
+        };
+
+        bootAuth();
+
         const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+            const uid = session?.user?.id || null;
+            console.log(`[FinTab Auth] Event: ${event}, UID: ${uid}`);
+            setAuthUserId(uid);
+            
             if (event === 'SIGNED_OUT') {
                 if (mounted) {
                     logoutJustHappenedRef.current = true;
@@ -223,7 +248,7 @@ const App = () => {
                     setIsAuthLoading(false);
                     localStorage.removeItem('fintab_active_business_id');
                 }
-            } else {
+            } else if (session) {
                 syncIdentity(session);
             }
         });
@@ -236,35 +261,49 @@ const App = () => {
 
     // Navigation Guard Effect
     useEffect(() => {
+        const path = location.pathname;
+        console.log(`[FinTab Nav] Check: path=${path}, loading=${isAuthLoading}, authed=${!!authUserId}, biz=${activeBusinessId}, count=${membershipsCount}`);
+
         if (isAuthLoading) return;
+        
         if (logoutJustHappenedRef.current) {
+            console.log('[FinTab Nav] Branch: Logout blocking');
             logoutJustHappenedRef.current = false;
             if (location.pathname !== '/') navigate('/', { replace: true });
             return;
         }
         
-        const path = location.pathname;
         const publicPaths = ['/', '/login', '/invite'];
         const isPublicPath = publicPaths.includes(path) || path.startsWith('/public-shopfront');
         
-        if (!currentUser && !isPublicPath) {
-            if (path !== '/') navigate('/', { replace: true });
-        } else if (currentUser && membershipsCount > 0 && activeBusinessId) {
-            if ((path === '/' || path === '/login') && path !== '/dashboard') {
-                navigate('/dashboard', { replace: true });
+        if (!authUserId) {
+            if (!isPublicPath) {
+                console.log('[FinTab Nav] Branch: Redirect to root (unauthorized)');
+                navigate('/', { replace: true });
+            }
+        } else if (path === '/' || path === '/login') {
+            if (activeBusinessId && membershipsCount > 0) {
+                 console.log('[FinTab Nav] Branch: Redirect to dashboard (authorized)');
+                 navigate('/dashboard', { replace: true });
             }
         }
-    }, [currentUser, isAuthLoading, activeBusinessId, membershipsCount, location.pathname, navigate]);
+    }, [authUserId, isAuthLoading, activeBusinessId, membershipsCount, location.pathname, navigate]);
 
     // Handlers
     const handleLogout = async () => {
-        await supabase.auth.signOut();
+        console.log('[FinTab Auth] Logout clicked');
         logoutJustHappenedRef.current = true;
+        const result = await supabase.auth.signOut();
+        console.log('[FinTab Auth] SignOut result:', result);
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('[FinTab Auth] Verification: Session after logout exists?', !!session);
+        
+        setAuthUserId(null);
         setCurrentUser(null);
         setActiveBusinessId(null);
         setMembershipsCount(0);
         localStorage.removeItem('fintab_active_business_id');
-        if (location.pathname !== '/') navigate('/', { replace: true });
+        navigate('/', { replace: true });
     };
 
     const onUpdateCartItem = (product, variant, quantity) => {
@@ -306,11 +345,11 @@ const App = () => {
 
     // --- WATERFALL IDENTITY RENDERS ---
     
-    if (isAuthLoading || membershipsCount === null) {
+    if (isAuthLoading || (authUserId && membershipsCount === null)) {
         return <LoadingScreen />;
     }
 
-    if (!currentUser) {
+    if (!authUserId) {
         return (
             <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
                 <Routes>
@@ -338,7 +377,7 @@ const App = () => {
             <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
                  <Routes>
                     <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
-                    <Route path="*" element={<SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} isOwnerAdmin={currentUser.role === 'Owner'} />} />
+                    <Route path="*" element={<SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} isOwnerAdmin={currentUser?.role === 'Owner'} />} />
                 </Routes>
             </div>
         );

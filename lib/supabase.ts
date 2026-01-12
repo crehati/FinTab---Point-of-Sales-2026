@@ -19,11 +19,16 @@ let clientInstance: any = null;
 let configPromise: Promise<void> | null = null;
 
 const initializeClient = (url: string, key: string) => {
-  clientInstance = createClient(url, key, {
-    auth: { persistSession: true, autoRefreshToken: true }
-  });
-  const maskedKey = key ? `***${key.slice(-6)}` : 'MISSING';
-  console.info(`[FinTab Integrity] Supabase client ACTIVE. Target: ${url}, NodeKey: ${maskedKey}`);
+  if (!url || !key) return;
+  try {
+    clientInstance = createClient(url, key, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    });
+    const maskedKey = key ? `***${key.slice(-6)}` : 'MISSING';
+    console.info(`[FinTab Integrity] Supabase client ACTIVE. Target: ${url}, NodeKey: ${maskedKey}`);
+  } catch (err) {
+    console.error('[FinTab Integrity] Failed to initialize Supabase client:', err);
+  }
 };
 
 if (supabaseUrl && supabaseAnonKey) {
@@ -42,13 +47,27 @@ if (supabaseUrl && supabaseAnonKey) {
     });
 }
 
+/**
+ * Creates a deep proxy that preserves 'this' context for methods
+ * and prevents crashing on internal property probing.
+ */
 const createDeepProxy = (path: string = 'supabase'): any => {
   const proxyTarget = (...args: any[]) => {
     const resolveCall = (client: any) => {
       const parts = path.split('.').slice(1);
       let target = client;
-      for (const part of parts) target = target[part];
-      return target(...args);
+      let parent = null;
+      
+      for (const part of parts) {
+        parent = target;
+        if (target === undefined || target === null) break;
+        target = target[part];
+      }
+      
+      if (typeof target === 'function') {
+        return target.apply(parent, args);
+      }
+      return target;
     };
 
     if (clientInstance) return resolveCall(clientInstance);
@@ -61,14 +80,22 @@ const createDeepProxy = (path: string = 'supabase'): any => {
 
   return new Proxy(proxyTarget, {
     get: (target, prop) => {
+      // Return standard Promise methods as undefined to prevent Proxy-as-Promise confusion
       if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined;
       
-      // Special handling for auth to ensure onAuthStateChange and other properties work
-      if (clientInstance) {
+      // Handle internal properties and probes immediately
+      const internalProps = ['_debug', 'initializePromise', 'constructor', 'toJSON', 'prototype', '__proto__'];
+      if (typeof prop === 'string' && (internalProps.includes(prop) || prop.startsWith('_'))) {
+        if (clientInstance) {
           const parts = path.split('.').slice(1);
           let current = clientInstance;
-          for (const part of parts) current = current[part];
-          return current[prop];
+          for (const part of parts) {
+            if (current === undefined || current === null) break;
+            current = current[part];
+          }
+          return current ? current[prop] : undefined;
+        }
+        return undefined;
       }
       
       return createDeepProxy(`${path}.${String(prop)}`);

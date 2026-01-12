@@ -31,9 +31,8 @@ interface MyProfileProps {
 const MyProfile: React.FC<MyProfileProps> = (props) => {
     const { currentUser } = props;
 
-    // Strict role mapping ensures that each view is isolated and dedicated.
-    // Switching identity triggers a complete component lifecycle restart.
-    
+    if (!currentUser) return null;
+
     if (currentUser.role === 'Owner' || currentUser.role === 'Super Admin') {
         return <OwnerProfile {...props} />;
     }
@@ -42,7 +41,6 @@ const MyProfile: React.FC<MyProfileProps> = (props) => {
         return <InvestorProfile {...props} />;
     }
 
-    // Cashier, Manager, SellerAgent, and Custom roles all map to the Staff view
     return <StaffProfile {...props} />;
 };
 

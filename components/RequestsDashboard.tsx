@@ -1,7 +1,8 @@
+
 // @ts-nocheck
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User, Sale, Withdrawal, Deposit, ReceiptSettingsData, Customer, AppPermissions, CustomPayment, ExpenseRequest, BankAccount } from '../types';
-import { WarningIcon, PlusIcon, PhoneIcon, BankIcon, TransactionIcon, StaffIcon, CalculatorIcon, ChevronDownIcon, CloseIcon } from '../constants';
+import { WarningIcon, PlusIcon, PhoneIcon, BankIcon, TransactionIcon, StaffIcon, CalculatorIcon, ChevronDownIcon, CloseIcon, ShieldCheckIcon } from '../constants';
 import { formatCurrency } from '../lib/utils';
 import { hasAccess } from '../lib/permissions';
 import ConfirmationModal from './ConfirmationModal';

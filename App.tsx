@@ -38,17 +38,8 @@ import Counter from './components/Counter';
 import Proforma from './components/Proforma';
 import Commission from './components/Commission';
 import Expenses from './components/Expenses';
-import ExpenseRequestPage from './components/ExpenseRequestPage';
 import MyProfile from './components/MyProfile';
 import Settings from './components/Settings';
-import ReceiptSettings from './components/ReceiptSettings';
-import Permissions from './components/Permissions';
-import BusinessSettings from './components/BusinessSettings';
-import OwnerSettingsPage from './components/OwnerSettings';
-import PrinterSettings from './components/PrinterSettings';
-import NotificationCenter from './components/NotificationCenter';
-import AccessDenied from './components/AccessDenied';
-import GoBackButton from './components/GoBackButton';
 import SelectBusiness from './components/SelectBusiness';
 import Transactions from './components/Transactions';
 import InvestorPage from './components/Investor';
@@ -56,7 +47,6 @@ import CashCountPage from './components/CashCount';
 import GoodsCostingPage from './components/GoodsCosting';
 import GoodsReceivingPage from './components/GoodsReceiving';
 import WeeklyInventoryCheckPage from './components/WeeklyInventoryCheck';
-import Directory from './components/Directory';
 import AlertsPage from './components/AlertsPage';
 import PublicStorefront from './components/PublicStorefront';
 import BankAccountsPage from './components/BankAccounts';
@@ -78,7 +68,6 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
                 <button onClick={onMenuClick} className="lg:hidden p-2.5 text-slate-500 hover:bg-slate-50 dark:hover:bg-gray-800 rounded-2xl transition-all active:scale-95">
                     <MenuIcon />
                 </button>
-                <GoBackButton />
             </div>
             <Link to="/dashboard" className="flex items-center gap-3 group transition-all">
                 <div className="hidden sm:block">
@@ -88,12 +77,6 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             </Link>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
-            {currentUser && <NotificationCenter notifications={notifications} onMarkAsRead={() => {}} onMarkAllAsRead={() => {}} onClear={() => {}} />}
-            <Link to="/counter" className="p-2.5 rounded-2xl text-slate-400 hover:text-primary hover:bg-slate-50 dark:hover:bg-gray-800 relative transition-all active:scale-95 group">
-                <CounterIcon className="w-6 h-6 transition-transform group-hover:-rotate-6" />
-                {cartCount > 0 && <span className="absolute top-1.5 right-1.5 badge-standard bg-primary scale-75 border-2 border-white dark:border-gray-900">{cartCount}</span>}
-            </Link>
-            <div className="h-8 w-px bg-slate-100 dark:bg-gray-800 mx-1 opacity-60"></div>
             <Link to="/profile" className="flex items-center gap-3 pl-2 group transition-all">
                 <div className="relative">
                     <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.name || 'User')}`} className="w-9 h-9 rounded-2xl object-cover shadow-sm border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all duration-300" />
@@ -130,19 +113,25 @@ const App = () => {
     const navigate = useNavigate();
     const location = useLocation();
     
+    // Auth & Identity State
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
-    const [membershipsCount, setMembershipsCount] = useState<number | null>(null);
+    const [membershipsCount, setMembershipsCount] = useState<number | null>(null); // NULL indicates LOADING
     const [isOwnerAdmin, setIsOwnerAdmin] = useState(false);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [supabaseStatus, setSupabaseStatus] = useState(isSupabaseActive());
-    const [initError, setInitError] = useState<string | null>(null);
 
-    const [businessProfile, setBusinessProfile] = useState(null);
-    const [products, setProducts] = useState([]);
-    const [expenses, setExpenses] = useState([]);
-    const [bankAccounts, setBankAccounts] = useState([]);
+    // Operational State
+    const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
+    const [businessSettings, setBusinessSettings] = useState<BusinessSettingsData>(DEFAULT_BUSINESS_SETTINGS);
+    const [receiptSettings, setReceiptSettings] = useState<ReceiptSettingsData>(DEFAULT_RECEIPT_SETTINGS);
+    const [products, setProducts] = useState<Product[]>([]);
+    const [sales, setSales] = useState<Sale[]>([]);
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [customers, setCustomers] = useState<Customer[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
+    const [deposits, setDeposits] = useState<Deposit[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [ledgerEntries, setLedgerEntries] = useState([]);
 
@@ -156,212 +145,142 @@ const App = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // 0. Auth Callback & Clean-up Protocol
-    useEffect(() => {
-        const resolveAuthHash = async () => {
-            if (window.location.hash.includes('access_token=') || window.location.hash.includes('refresh_token=')) {
-                try {
-                    await supabase.auth.getSession();
-                    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-                } catch (e) {
-                    console.error("[Auth Callback] Protocol failed:", e);
-                }
-            }
-        };
-        resolveAuthHash();
-    }, []);
-
-    // 1. Identity Lifecycle Protocol
-    useEffect(() => {
-        if (!supabaseStatus) return;
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (session?.user) {
-                const user: User = { 
-                    id: session.user.id, 
-                    email: session.user.email || '', 
-                    name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
-                    avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-                    role: 'Staff', 
-                    status: 'Active', 
-                    type: 'commission'
-                };
-                setCurrentUser(user);
-
-                // Fetch memberships to drive authority and routing logic
-                const { data: memberships, error: memErr } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
-                
-                if (memErr) {
-                    console.error("[Auth Hub] Membership retrieval failed (Recursion or 500):", memErr);
-                    setInitError(JSON.stringify(memErr, null, 2));
-                    setIsInitialLoad(false);
-                    return;
-                }
-
-                const count = memberships?.length || 0;
-                const hasAuthority = memberships?.some(m => m.role === 'Owner' || m.role === 'Admin') || false;
-                
-                setMembershipsCount(count);
-                setIsOwnerAdmin(hasAuthority);
-
-                if (count > 0) {
-                    const storedBizId = localStorage.getItem('fintab_active_business_id');
-                    const validBiz = memberships.find(m => m.business_id === storedBizId);
-                    if (validBiz) {
-                        setActiveBusinessId(storedBizId);
-                        setCurrentUser(prev => ({ ...prev, role: validBiz.role }));
-                    }
-                } else {
-                    // Logic Guard: Force Onboarding for unassigned accounts unless accepting an invite
-                    if (!location.pathname.startsWith('/invite') && location.pathname !== '/onboarding') {
-                        navigate('/onboarding', { replace: true });
-                    }
-                }
-            } else {
-                setCurrentUser(null);
-                setActiveBusinessId(null);
-                setMembershipsCount(0);
-                setIsOwnerAdmin(false);
-            }
+    // 1. IDENTITY LIFECYCLE (The Handshake Logic)
+    const syncIdentity = async (session) => {
+        if (!session?.user) {
+            setCurrentUser(null);
+            setActiveBusinessId(null);
+            setMembershipsCount(0); // Explicit 0 allows login screen
             setIsInitialLoad(false);
-        });
-        return () => subscription.unsubscribe();
-    }, [supabaseStatus]);
-
-    // 2. Data Synchronization
-    const syncRegistry = async () => {
-        if (!activeBusinessId || !supabaseStatus) return;
-        
-        // SCHEMA ALIGNMENT: select verified columns only. 
-        // Explicit selection ensures PostgREST does not attempt to fetch non-existent 'email' or 'owner_id' columns.
-        const { data: biz, error: bizErr } = await supabase
-            .from('businesses')
-            .select('id, name, profile, settings, created_by')
-            .eq('id', activeBusinessId)
-            .single();
-        
-        if (bizErr) {
-            console.error('[Biz Sync] businesses read error', bizErr);
-            setInitError(JSON.stringify(bizErr, null, 2));
             return;
         }
 
-        if (biz) {
-            const p = (biz as any).profile || {};
-            setBusinessProfile({ 
-                id: biz.id, 
-                businessName: biz.name, 
-                businessType: p.type || 'Retail', 
-                businessEmail: p.ledger_email || '', 
-                businessPhone: p.phone || '', 
-                logo: p.logo_url || null,
-                createdBy: biz.created_by
-            });
+        const user: User = { 
+            id: session.user.id, 
+            email: session.user.email || '', 
+            name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
+            avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
+            role: 'Staff', 
+            status: 'Active', 
+            type: 'commission'
+        };
+
+        // Fetch memberships to confirm onboarding status
+        // We MUST await this before setting membershipsCount to avoid redirect loops
+        const { data: memberships, error: memErr } = await supabase
+            .from('memberships')
+            .select('business_id, role')
+            .eq('user_id', session.user.id);
+        
+        if (memErr) {
+            console.error("[Identity Sync] Retrieval Error:", memErr);
+            setMembershipsCount(0);
+            setIsInitialLoad(false);
+            return;
         }
 
-        const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
-        if (prods) setProducts(prods.map(p => ({ ...p, costPrice: p.cost_price, imageUrl: p.image_url })));
+        const count = memberships?.length || 0;
+        setMembershipsCount(count); // Transition from null to a number
+        setCurrentUser({ ...user, role: memberships?.[0]?.role || 'Staff' });
 
-        const { data: ledger } = await supabase.from('unified_ledger').select('*').eq('business_id', activeBusinessId);
-        if (ledger) setLedgerEntries(ledger);
+        if (count > 0) {
+            const storedBizId = localStorage.getItem('fintab_active_business_id');
+            const validBiz = memberships.find(m => m.business_id === storedBizId) || memberships[0];
+            if (validBiz) {
+                setActiveBusinessId(validBiz.business_id);
+                localStorage.setItem('fintab_active_business_id', validBiz.business_id);
+            }
+        }
+        
+        setIsInitialLoad(false);
     };
 
     useEffect(() => {
+        if (!supabaseStatus) return;
+        supabase.auth.getSession().then(({ data: { session } }) => syncIdentity(session));
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => syncIdentity(session));
+        return () => subscription.unsubscribe();
+    }, [supabaseStatus]);
+
+    // 2. DATA SYNCHRONIZATION
+    useEffect(() => {
+        const syncRegistry = async () => {
+            if (!activeBusinessId || !supabaseStatus) return;
+            
+            const { data: biz } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
+            if (biz) {
+                setBusinessProfile({ 
+                    id: biz.id, 
+                    businessName: biz.name, 
+                    businessType: biz.profile?.type || 'Retail', 
+                    businessEmail: biz.profile?.ledger_email || '', 
+                    businessPhone: biz.profile?.phone || '', 
+                    logo: biz.profile?.logo_url || null
+                });
+                setBusinessSettings(biz.settings || DEFAULT_BUSINESS_SETTINGS);
+            }
+
+            const [prods, sls, custs, exps, members] = await Promise.all([
+                supabase.from('products').select('*').eq('business_id', activeBusinessId),
+                supabase.from('sales').select('*').eq('business_id', activeBusinessId),
+                supabase.from('customers').select('*').eq('business_id', activeBusinessId),
+                supabase.from('expenses').select('*').eq('business_id', activeBusinessId),
+                supabase.from('memberships').select('role, user_id').eq('business_id', activeBusinessId)
+            ]);
+
+            if (prods.data) setProducts(prods.data);
+            if (sls.data) setSales(sls.data);
+            if (custs.data) setCustomers(custs.data);
+            if (exps.data) setExpenses(exps.data);
+            if (members.data) setUsers(members.data.map(m => ({ id: m.user_id, role: m.role, name: 'Unit Node' })));
+        };
+
         syncRegistry();
     }, [activeBusinessId, supabaseStatus]);
 
-    const handleLogout = async () => {
-        if (isSupabaseActive()) await supabase.auth.signOut();
-        localStorage.removeItem('fintab_active_business_id');
-        setCurrentUser(null);
-        setActiveBusinessId(null);
-        setMembershipsCount(0);
-        setIsOwnerAdmin(false);
-        setInitError(null);
-        navigate('/', { replace: true });
-    };
-
-    if (isInitialLoad) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
-
-    if (initError) {
+    // LOADING STATE GUARD (Prevents redirect loop)
+    // If membershipsCount is null, we are still checking the DB.
+    // Showing a spinner here prevents the routing guards from guessing wrong.
+    if (isInitialLoad || (currentUser && membershipsCount === null)) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950 p-6">
-                <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl p-10 max-w-xl w-full border border-rose-100 overflow-hidden">
-                    <div className="flex items-center gap-4 text-rose-600 mb-6">
-                        <WarningIcon className="w-8 h-8" />
-                        <h2 className="text-xl font-black uppercase tracking-tighter">Identity Sync Fault</h2>
-                    </div>
-                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-6">The terminal encountered a protocol failure while verifying memberships.</p>
-                    <pre className="bg-slate-50 dark:bg-gray-950 p-6 rounded-2xl text-[10px] font-mono text-rose-500 overflow-x-auto whitespace-pre-wrap border border-slate-100">
-                        {initError}
-                    </pre>
-                    <div className="mt-10 flex gap-4">
-                        <button onClick={() => window.location.reload()} className="flex-1 py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl">Re-initialize</button>
-                        <button onClick={handleLogout} className="px-8 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[10px] tracking-widest">Sign Out</button>
-                    </div>
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950">
+                <div className="flex flex-col items-center gap-6">
+                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Initializing Grid Node</p>
                 </div>
             </div>
         );
     }
 
     const isAuthenticated = !!currentUser;
-    const hasMemberships = membershipsCount !== null && membershipsCount > 0;
-    const canCreateNode = membershipsCount === 0 || isOwnerAdmin;
+    const hasMemberships = membershipsCount > 0;
+    const t = (k: string) => translations['en']?.[k] || k;
 
     return (
         <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-gray-950">
             <ScrollToTop />
             <Routes>
-                {/* PUBLIC: Invitation accept path */}
                 <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
+                <Route path="/" element={!isAuthenticated ? <Login /> : !hasMemberships ? <Navigate to="/onboarding" replace /> : <Navigate to="/dashboard" replace />} />
+                <Route path="/onboarding" element={!isAuthenticated ? <Navigate to="/" replace /> : hasMemberships ? <Navigate to="/dashboard" replace /> : <Onboarding currentUser={currentUser} />} />
                 
-                {/* IDENTITY GATEWAY */}
-                <Route path="/" element={
-                    !isAuthenticated ? <Login /> : 
-                    !hasMemberships ? <Navigate to="/onboarding" replace /> :
-                    <Navigate to="/dashboard" replace />
-                } />
-
-                {/* ONBOARDING: Creation path for authorized identities only */}
-                <Route path="/onboarding" element={
-                    !isAuthenticated ? <Navigate to="/" replace /> : 
-                    !canCreateNode ? <Navigate to="/select-business" replace /> :
-                    <Onboarding currentUser={currentUser} membershipsCount={membershipsCount} />
-                } />
-
-                {/* SELECTION HUB */}
-                <Route path="/select-business" element={
-                    !isAuthenticated ? <Navigate to="/" replace /> :
-                    !hasMemberships ? <Navigate to="/onboarding" replace /> :
-                    <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={handleLogout} isOwnerAdmin={isOwnerAdmin} />
-                } />
-
-                {/* PROTECTED OPERATIONS HUB */}
                 <Route path="/*" element={
                     !isAuthenticated ? <Navigate to="/" replace /> :
                     !hasMemberships ? <Navigate to="/onboarding" replace /> :
-                    !activeBusinessId ? <Navigate to="/select-business" replace /> : (
+                    !activeBusinessId ? <div className="p-20 text-center"><button onClick={() => window.location.reload()} className="btn-base btn-primary">Sync Node</button></div> : (
                         <div className="flex flex-1 overflow-hidden">
-                            <Sidebar t={k => k} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} onLogout={handleLogout} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} />
+                            <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} />
                             <div id="app-main-viewport" className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                                <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} notifications={[]} cartCount={cart.length} />
+                                <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} cartCount={cart.length} />
                                 <main className="p-4 md:p-8 flex-1">
                                     <Routes>
-                                        <Route path="/dashboard" element={<Dashboard products={products} currentUser={currentUser} businessProfile={businessProfile} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                        <Route path="/inventory" element={<Inventory products={products} setProducts={setProducts} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                        <Route path="/counter" element={<Counter cart={cart} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => {
-                                            setCart(prev => {
-                                                const existing = prev.find(i => i.product.id === p.id && (!v || i.variant?.id === v.id));
-                                                if (q <= 0) return prev.filter(i => !(i.product.id === p.id && (!v || i.variant?.id === v.id)));
-                                                if (existing) return prev.map(i => (i.product.id === p.id && (!v || i.variant?.id === v.id)) ? { ...i, quantity: q } : i);
-                                                return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }];
-                                            });
-                                        }} onClearCart={() => setCart([])} currentUser={currentUser} t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                        <Route path="/reports" element={<Reports t={k => k} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ledgerEntries={ledgerEntries} />} />
-                                        <Route path="/users" element={<Users users={[]} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
+                                        <Route path="/dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} />} />
+                                        <Route path="/inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} currentUser={currentUser} users={users} />} />
+                                        <Route path="/profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} receiptSettings={receiptSettings} t={t} businessProfile={businessProfile} businessSettings={businessSettings} />} />
                                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
                                     </Routes>
                                 </main>
-                                <BottomNavBar t={k => k} cart={cart} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} />
+                                <BottomNavBar t={t} cart={cart} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} />
                             </div>
                         </div>
                     )

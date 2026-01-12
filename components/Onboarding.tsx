@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { COUNTRIES } from '../constants';
-import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 
 const STEPS = [
   { id: 1, name: 'Identity' },
@@ -12,17 +11,12 @@ const STEPS = [
   { id: 3, name: 'Sync' },
 ];
 
-const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ currentUser, membershipsCount }) => {
+const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
-    const [owner, setOwner] = useState({
-        fullName: currentUser?.name || '',
-        email: currentUser?.email || '',
-        password: '',
-    });
     const [business, setBusiness] = useState({
         businessName: '',
         businessType: 'Retail',
@@ -32,11 +26,6 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
 
     useEffect(() => {
         if (currentUser) {
-            setOwner(prev => ({ 
-                ...prev, 
-                fullName: currentUser.name || prev.fullName, 
-                email: currentUser.email || prev.email 
-            }));
             setBusiness(prev => ({ 
                 ...prev, 
                 businessEmail: currentUser.email || prev.businessEmail 
@@ -49,30 +38,11 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
         setLoading(true);
         setError(null);
 
-        const TIMEOUT_MS = 15000;
-        const timeout = (ms: number) => new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Supabase request timed out — check your RLS policies or network.")), ms)
-        );
-
         try {
-            let userId = currentUser?.id;
+            const userId = currentUser?.id;
+            if (!userId) throw new Error("Identity Check Failed: No authenticated session found.");
 
-            // 1. Authenticate Identity
-            if (!userId) {
-                const { data: authData, error: authError } = await supabase.auth.signUp({
-                    email: owner.email,
-                    password: owner.password,
-                    options: { data: { full_name: owner.fullName } }
-                });
-                if (authError) throw authError;
-                userId = authData.user?.id;
-            } else {
-                await supabase.auth.updateUser({ data: { full_name: owner.fullName } });
-            }
-
-            if (!userId) throw new Error("Identity Check Failed: No User ID returned.");
-
-            // 2. Initialize Business Node
+            // 1. Initialize Business Node (Waterfall Phase A)
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
             
             const bizPayload = {
@@ -84,29 +54,26 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     type: business.businessType,
                     logo: null
                 },
-                settings: {}
+                settings: {
+                    defaultTaxRate: 0,
+                    currencySymbol: '$',
+                    paymentMethods: ['Cash', 'Bank Transfer']
+                }
             };
 
-            const bizInsert = supabase
+            // INSERT BUSINESS AND CAPTURE ID
+            const { data: bizData, error: bizError } = await supabase
                 .from('businesses')
                 .insert(bizPayload)
-                .select('id, name')
+                .select()
                 .single();
-
-            const bizResult = await Promise.race([bizInsert, timeout(TIMEOUT_MS)]) as any;
             
-            if (bizResult.error) {
-                console.error('BUSINESS_INSERT_ERROR', bizResult.error);
-                setError(`BUSINESS_INSERT_ERROR: ${JSON.stringify(bizResult.error, null, 2)}`);
-                setLoading(false);
-                return;
-            }
+            if (bizError) throw bizError;
+            if (!bizData?.id) throw new Error("Initialization Error: Business registry failed to return a Node ID.");
 
-            const bizData = bizResult.data;
-            if (!bizData?.id) throw new Error("Initialization Error: Business ID not returned from registry.");
-
-            // 3. Authorize Principal Membership
-            const memberInsert = supabase
+            // 2. ATOMIC MEMBERSHIP CREATION (Waterfall Phase B)
+            // This links the user to the business before we move forward
+            const { error: memberError } = await supabase
                 .from('memberships')
                 .insert({
                     business_id: bizData.id,
@@ -114,28 +81,34 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     role: 'Owner'
                 });
 
-            const memberResult = await Promise.race([memberInsert, timeout(TIMEOUT_MS)]) as any;
-            
-            if (memberResult.error) {
-                console.error('MEMBERSHIP_INSERT_ERROR', memberResult.error);
-                setError(`MEMBERSHIP_INSERT_ERROR: ${JSON.stringify(memberResult.error, null, 2)}`);
-                setLoading(false);
-                return;
-            }
+            if (memberError) throw memberError;
 
+            // 3. SET LOCAL MARKER (Anchoring)
+            // This tells App.tsx which specific node to boot into after refresh
             localStorage.setItem('fintab_active_business_id', bizData.id);
+
+            // 4. MOVE TO SYNC BUFFER STEP
             setStep(3);
         } catch (err: any) {
             console.error("[Protocol Error]", err);
             setError(err.message || "An unexpected error occurred during node synchronization.");
+        } finally {
             setLoading(false);
         }
+    };
+
+    const handleFinalLaunch = () => {
+        // HARD SYNC: Forces App.tsx to re-run its membership checks 
+        // with the newly created database rows in place.
+        window.location.hash = '/dashboard';
+        window.location.reload();
     };
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] dark:bg-gray-950 flex flex-col items-center justify-center p-4 sm:p-6 font-sans overflow-y-auto">
             <div className="w-full max-w-[500px] space-y-3 animate-fade-in">
                 
+                {/* Progress Visualizer */}
                 <div className="flex justify-center gap-3">
                     {STEPS.map(s => (
                         <div key={s.id} className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${step >= s.id ? 'bg-primary' : 'bg-slate-200 dark:bg-gray-800'}`} />
@@ -147,32 +120,17 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                         <div className="space-y-6 animate-fade-in">
                             <header>
                                 <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Legal Identity</h2>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Principal Owner Enrollment</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Owner Enrollment</p>
                             </header>
-                            <div className="space-y-4">
-                                <Input label="Legal Full Name" value={owner.fullName} onChange={e => setOwner({...owner, fullName: e.target.value})} placeholder="e.g. Jean Dupont" />
-                                
-                                {!currentUser ? (
-                                    <>
-                                        <Input label="Security Email" value={owner.email} onChange={e => setOwner({...owner, email: e.target.value})} placeholder="owner@domain.com" />
-                                        <div className="space-y-2">
-                                            <Input label="Protocol Password" type="password" value={owner.password} onChange={e => setOwner({...owner, password: e.target.value})} placeholder="••••••••" />
-                                            <PasswordStrengthIndicator password={owner.password} />
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="p-4 bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-800">
-                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Account</p>
-                                        <p className="text-xs font-bold text-slate-900 dark:text-white">{owner.email}</p>
-                                    </div>
-                                )}
+                            <div className="p-5 bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-800">
+                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Account</p>
+                                <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser?.name || currentUser?.email}</p>
                             </div>
                             <button 
                                 onClick={() => setStep(2)} 
-                                disabled={!owner.fullName || (!currentUser && (!owner.email || !owner.password))}
-                                className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-98 transition-all disabled:opacity-30"
+                                className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-98 transition-all"
                             >
-                                Continue Node Setup
+                                Continue to Business Setup
                             </button>
                         </div>
                     )}
@@ -180,15 +138,11 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                     {step === 2 && (
                         <div className="space-y-6 animate-fade-in">
                             <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Logic</h2>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Node Configuration</p>
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Node</h2>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Configure Authorized Grid Node</p>
                             </header>
                             {error && (
-                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[10px] font-mono text-left border border-rose-100 shadow-sm animate-shake mb-4 overflow-x-auto whitespace-pre-wrap">
-                                    <div className="flex items-center gap-2 text-rose-600 mb-2 font-bold uppercase font-sans text-[11px]">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                        Protocol Fault Detected
-                                    </div>
+                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[10px] font-bold uppercase border border-rose-100 animate-shake mb-4">
                                     {error}
                                 </div>
                             )}
@@ -203,7 +157,6 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                                         <input type="tel" value={businessPhone.localPhone} onChange={e => setBusinessPhone({...businessPhone, localPhone: e.target.value})} className="flex-1 bg-transparent border-none p-3.5 text-base font-bold outline-none" placeholder="5551234567" />
                                     </div>
                                 </div>
-                                <Input label="Official Ledger Email" value={business.businessEmail} onChange={e => setBusiness({...business, businessEmail: e.target.value})} placeholder="hq@business.io" />
                             </div>
                             <div className="flex gap-3">
                                 <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest" disabled={loading}>Back</button>
@@ -225,10 +178,10 @@ const Onboarding: React.FC<{ currentUser: any; membershipsCount: number }> = ({ 
                             </div>
                             <div>
                                 <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Sync Complete</h2>
-                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Identity authorized. Business node live.</p>
+                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Membership verified. Business node is live.</p>
                             </div>
                             <button 
-                                onClick={() => window.location.reload()} 
+                                onClick={handleFinalLaunch} 
                                 className="w-full bg-slate-900 text-white py-5 rounded-xl font-black uppercase text-[11px] tracking-[0.3em] shadow-2xl active:scale-95 transition-all"
                             >
                                 Launch Dashboard

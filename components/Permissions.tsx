@@ -3,8 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import type { Role, User, AppPermissions, UserPermissions, ModuleKey } from '../types';
 import { MODULE_CONFIG } from '../lib/permissions';
 import Card from './Card';
-// Fix: Import WarningIcon to resolve Error on line 182
-import { WarningIcon } from '../constants';
+// Fix: Import WarningIcon and ShieldCheckIcon from constants
+import { WarningIcon, ShieldCheckIcon } from '../constants';
 
 interface PermissionsProps {
     permissions: AppPermissions;
@@ -18,12 +18,6 @@ const manageableRoles: Role[] = ['Manager', 'Cashier', 'SellerAgent', 'BankVerif
 const InfoIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-);
-
-export const ShieldCheckIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="h-10 w-10" {...props}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 20.944A12.02 12.02 0 0012 22.444a12.02 12.02 0 009-1.499A11.955 11.955 0 0112 2.944a11.955 11.955 0 018.618 3.04z" />
     </svg>
 );
 

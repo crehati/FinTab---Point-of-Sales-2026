@@ -4,8 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { BusinessSettingsData, BusinessProfile, User, WorkflowRoleKey, WorkflowRoleAssignment, AnomalySettings } from '../types';
 import Card from './Card';
 import DestructiveConfirmationModal from './DestructiveConfirmationModal';
-import { CreditCardIcon, TruckIcon, CalculatorIcon, PlusIcon, DeleteIcon, ChevronDownIcon, InvestorIcon, BuildingIcon, StorefrontIcon, ProfileIcon, CloseIcon, COUNTRIES, LightBulbIcon, WarningIcon } from '../constants';
-import { ShieldCheckIcon } from './Permissions';
+import { CreditCardIcon, TruckIcon, CalculatorIcon, PlusIcon, DeleteIcon, ChevronDownIcon, InvestorIcon, BuildingIcon, StorefrontIcon, ProfileIcon, CloseIcon, COUNTRIES, LightBulbIcon, WarningIcon, ShieldCheckIcon } from '../constants';
 
 interface BusinessSettingsProps {
     settings: BusinessSettingsData;

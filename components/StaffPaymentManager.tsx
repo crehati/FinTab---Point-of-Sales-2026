@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import type { User, ReceiptSettingsData, CustomPayment } from '../types';
 import { PlusIcon } from '../constants';
@@ -17,16 +18,13 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
     const cs = receiptSettings.currencySymbol;
 
     const allPayments = useMemo(() => {
-        return users.flatMap(user =>
+        return (users || []).flatMap(user =>
             (user.customPayments || []).map(p => ({ ...p, user }))
         ).sort((a, b) => new Date(b.dateInitiated).getTime() - new Date(a.dateInitiated).getTime());
     }, [users]);
 
-    // Fix: Using the correct status 'approved_by_owner' as defined in CustomPayment type.
-    const awaitingPayout = useMemo(() => allPayments.filter(p => p.status === 'approved_by_owner'), [allPayments]);
-    
-    // Fix: History should filter out active workflow statuses 'pending_owner_approval' and 'approved_by_owner'.
-    const history = useMemo(() => allPayments.filter(p => p.status !== 'pending_owner_approval' && p.status !== 'approved_by_owner'), [allPayments]);
+    const awaitingPayout = useMemo(() => allPayments.filter(p => p.status === 'approved_by_owner' || p.status === 'pending_owner_approval'), [allPayments]);
+    const history = useMemo(() => allPayments.filter(p => p.status === 'completed' || p.status === 'rejected_by_owner' || p.status === 'cancelled_by_user'), [allPayments]);
 
     const handleDraftConfirm = (targetUserId: string, amount: number, description: string) => {
         handleInitiateCustomPayment(targetUserId, amount, description);
@@ -34,7 +32,6 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
     };
 
     const getStatusBadge = (status: CustomPayment['status']) => {
-        // Fix: Mapping keys to actual status values from CustomPayment type definition.
         const styles: Record<CustomPayment['status'], string> = {
             pending_owner_approval: 'bg-yellow-100 text-yellow-800',
             rejected_by_owner: 'bg-red-100 text-red-800',
@@ -42,7 +39,6 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
             completed: 'bg-green-100 text-green-800',
             cancelled_by_user: 'bg-gray-100 text-gray-800',
         };
-        // Fix: Display text adjusted for precise terminal status terminology.
         const text: Record<CustomPayment['status'], string> = {
             pending_owner_approval: 'Review Required',
             rejected_by_owner: 'Declined',
@@ -50,60 +46,59 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
             completed: 'Settled',
             cancelled_by_user: 'Voided',
         };
-        return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status]}`}>{text[status]}</span>;
+        return <span className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg ${styles[status]}`}>{text[status]}</span>;
     };
 
     return (
-        <div>
-            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-4">
-                <div className="border-b border-gray-200">
-                    <nav className="flex -mb-px space-x-6" aria-label="Tabs">
-                        <button
-                            onClick={() => setActiveTab('awaitingPayout')}
-                            className={`relative whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'awaitingPayout' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                        >
-                            Awaiting Payout
-                            {awaitingPayout.length > 0 && (
-                                <span className="ml-2 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 bg-red-600 rounded-full">{awaitingPayout.length}</span>
-                            )}
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('history')}
-                            className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'history' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                        >
-                            History
-                        </button>
-                    </nav>
+        <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-6">
+                <div className="flex bg-slate-50 dark:bg-gray-800 p-1.5 rounded-2xl border border-slate-100 dark:border-gray-700">
+                    <button
+                        onClick={() => setActiveTab('awaitingPayout')}
+                        className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'awaitingPayout' ? 'bg-primary text-white shadow-lg' : 'text-slate-400'}`}
+                    >
+                        Pending Queue ({awaitingPayout.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('history')}
+                        className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'history' ? 'bg-primary text-white shadow-lg' : 'text-slate-400'}`}
+                    >
+                        Archive
+                    </button>
                 </div>
-                <button onClick={() => setIsDraftModalOpen(true)} className="flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow">
-                    <PlusIcon />
-                    <span>Draft New Payment</span>
+                <button onClick={() => setIsDraftModalOpen(true)} className="flex items-center justify-center gap-3 bg-slate-900 text-white px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all active:scale-95">
+                    <PlusIcon className="w-4 h-4" />
+                    <span>Issue Remittance</span>
                 </button>
             </div>
 
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-500">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+            <div className="table-wrapper border-none rounded-none -mx-6 px-6">
+                <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 dark:bg-gray-900 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
                         <tr>
-                            <th scope="col" className="px-6 py-3">Staff Member</th>
-                            <th scope="col" className="px-6 py-3">Date Initiated</th>
-                            <th scope="col" className="px-6 py-3">Amount</th>
-                            <th scope="col" className="px-6 py-3">Description</th>
-                            <th scope="col" className="px-6 py-3 text-center">Status/Action</th>
+                            <th className="px-6 py-4">Recipient</th>
+                            <th className="px-6 py-4">Auth Date</th>
+                            <th className="px-6 py-4">Value</th>
+                            <th className="px-6 py-4">Context</th>
+                            <th className="px-6 py-4 text-center">Protocol Action</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y dark:divide-gray-800">
                         {(activeTab === 'awaitingPayout' ? awaitingPayout : history).map(payment => (
-                            <tr key={payment.id} className="bg-white border-b hover:bg-gray-50">
-                                <td className="px-6 py-4 font-medium text-gray-900">{payment.user.name}</td>
-                                <td className="px-6 py-4">{new Date(payment.dateInitiated).toLocaleDateString()}</td>
-                                <td className="px-6 py-4 font-semibold">{cs}{payment.amount.toFixed(2)}</td>
-                                <td className="px-6 py-4">{payment.description}</td>
-                                <td className="px-6 py-4 text-center">
-                                    {/* Fix: Workflow step to transition authorized payments to completed status. */}
+                            <tr key={payment.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-6 py-5">
+                                    <div className="flex items-center gap-3">
+                                        <img src={payment.user?.avatarUrl} className="w-8 h-8 rounded-xl object-cover" />
+                                        <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-xs">{payment.user?.name}</p>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-5 text-slate-400 font-bold tabular-nums text-xs">{new Date(payment.dateInitiated).toLocaleDateString()}</td>
+                                <td className="px-6 py-5 font-black text-slate-900 dark:text-white tabular-nums">{cs}{payment.amount.toFixed(2)}</td>
+                                <td className="px-6 py-5 text-slate-500 text-xs font-medium max-w-[200px] truncate">{payment.description}</td>
+                                <td className="px-6 py-5 text-center">
                                     {payment.status === 'approved_by_owner' ? (
-                                        <button onClick={() => handleUpdateCustomPaymentStatus(payment.user.id, payment.id, 'completed')} className="px-3 py-1 text-xs font-semibold text-white bg-primary rounded-md hover:bg-blue-700">
-                                            Mark as Paid
+                                        <button onClick={() => handleUpdateCustomPaymentStatus(payment.user.id, payment.id, 'completed')} className="px-6 py-2 text-[9px] font-black text-white bg-emerald-500 rounded-xl hover:bg-emerald-600 uppercase tracking-widest transition-all">
+                                            Settle Now
                                         </button>
                                     ) : (
                                         getStatusBadge(payment.status)
@@ -113,11 +108,8 @@ const StaffPaymentManager: React.FC<StaffPaymentManagerProps> = ({ users, receip
                         ))}
                     </tbody>
                 </table>
-                 {(activeTab === 'awaitingPayout' && awaitingPayout.length === 0) && (
-                    <div className="text-center py-10 text-gray-500">No payments awaiting payout.</div>
-                )}
-                {(activeTab === 'history' && history.length === 0) && (
-                    <div className="text-center py-10 text-gray-500">No payment history found.</div>
+                 {((activeTab === 'awaitingPayout' ? awaitingPayout : history).length === 0) && (
+                    <div className="py-20 text-center text-slate-300 font-black uppercase tracking-[0.4em] text-[10px]">Registry Empty</div>
                 )}
             </div>
 

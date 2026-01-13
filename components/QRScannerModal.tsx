@@ -1,7 +1,7 @@
-
+// @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import type { User } from '../types';
-import { CloseIcon } from '../constants';
+import ModalShell from './ModalShell';
 
 // Declare Html5Qrcode as it's loaded from a CDN
 declare var Html5Qrcode: any;
@@ -23,11 +23,11 @@ const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose, curren
     useEffect(() => {
         if (isOpen) {
             if (!currentUser || currentUser.type !== 'hourly') {
-                setScanMessage({ type: 'error', text: 'No hourly staff member is logged in.' });
+                setScanMessage({ type: 'error', text: 'Protocol Error: Authorized hourly identity required.' });
                 return;
             }
             
-            setScanMessage({ type: 'info', text: `Ready for ${currentUser.name}. Point camera at the QR code.` });
+            setScanMessage({ type: 'info', text: `Point camera at station checkpoint...` });
             
             const html5QrCode = new Html5Qrcode(QR_READER_ID);
             scannerRef.current = html5QrCode;
@@ -36,89 +36,53 @@ const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose, curren
                 if (decodedText === QR_CODE_VALUE) {
                     html5QrCode.pause(true);
                     onClockInOut();
-                    setScanMessage({ type: 'success', text: `Success! Clocked in/out for ${currentUser.name}.` });
-                    setTimeout(() => {
-                        onClose();
-                    }, 1500);
+                    setScanMessage({ type: 'success', text: `Success! Identity authenticated.` });
+                    setTimeout(() => { onClose(); }, 1500);
                 } else {
-                    setScanMessage({ type: 'error', text: 'QR code not recognized. Please scan the correct code.' });
+                    setScanMessage({ type: 'error', text: 'Checksum Mismatch. Use terminal checkpoint QR.' });
                 }
             };
             
-            const qrCodeErrorCallback = (errorMessage: string) => {
-                // Not frequently needed for users
-            };
-
             const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            html5QrCode.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
+                .catch((err: any) => { setScanMessage({ type: 'error', text: 'Optics Failure: Camera access denied.' }); });
             
-            html5QrCode.start(
-                { facingMode: "environment" }, 
-                config, 
-                qrCodeSuccessCallback, 
-                qrCodeErrorCallback
-            ).catch((err: any) => {
-                setScanMessage({ type: 'error', text: 'Could not start camera. Please grant camera permission.' });
-                console.error("Camera start error:", err);
-            });
-            
-            return () => {
-                if (scannerRef.current && scannerRef.current.isScanning) {
-                    scannerRef.current.stop().catch((err: any) => {
-                        console.error("Failed to stop scanner:", err);
-                    });
-                }
-            };
+            return () => { if (scannerRef.current && scannerRef.current.isScanning) { scannerRef.current.stop(); } };
         }
-    }, [isOpen, currentUser, onClockInOut, onClose]);
+    }, [isOpen, currentUser]);
 
-    if (!isOpen) return null;
-    
-    const getMessageColor = () => {
-        if (!scanMessage) return 'text-gray-500';
-        switch (scanMessage.type) {
-            case 'success': return 'text-green-600 bg-green-50 border-green-200';
-            case 'error': return 'text-red-600 bg-red-50 border-red-200';
-            case 'info':
-            default: return 'text-gray-600 bg-gray-50 border-gray-200';
-        }
-    }
+    const footer = (
+        <button onClick={onClose} className="btn-base btn-secondary w-full py-4">Terminate Protocol</button>
+    );
 
     return (
-        <div 
-            className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-fade-in" 
-            role="dialog" 
-            aria-modal="true"
-            onClick={onClose}
+        <ModalShell 
+            isOpen={isOpen} 
+            onClose={onClose} 
+            title="Identity Scan" 
+            description="Personnel Checkpoint Protocol"
+            maxWidth="max-w-md"
+            footer={footer}
         >
-            <div 
-                className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-scale-in border border-white/10"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <header className="p-6 sm:p-8 border-b dark:border-gray-800 flex justify-between items-center flex-shrink-0">
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Identity Scan</h2>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Staff Clock In/Out Protocol</p>
-                    </div>
-                    <button onClick={onClose} className="p-3 -mr-3 -mt-2 rounded-2xl text-slate-400 hover:bg-slate-50 dark:hover:bg-gray-800 transition-all" aria-label="Close scanner">
-                        <CloseIcon className="w-6 h-6" />
-                    </button>
-                </header>
-
-                <main className="p-6 sm:p-8 flex-grow overflow-y-auto">
-                    <div id={QR_READER_ID} className="w-full rounded-3xl overflow-hidden border-4 border-slate-50 dark:border-gray-800 bg-black shadow-inner aspect-square"></div>
-                    
-                    {scanMessage && (
-                        <div className={`mt-6 p-4 rounded-2xl text-center text-xs font-bold uppercase tracking-widest border animate-fade-in ${getMessageColor()}`}>
-                            {scanMessage.text}
-                        </div>
-                    )}
-                </main>
+            <div className="space-y-8">
+                <div id={QR_READER_ID} className="w-full rounded-[2.5rem] overflow-hidden border-4 border-slate-50 dark:border-gray-800 bg-black shadow-2xl aspect-square"></div>
                 
-                <footer className="p-6 sm:p-8 bg-slate-50 dark:bg-gray-800/50 border-t dark:border-gray-800 flex justify-center">
-                    <button onClick={onClose} className="btn-base btn-secondary w-full py-4">Cancel Protocol</button>
-                </footer>
+                {scanMessage && (
+                    <div className={`p-6 rounded-[2rem] text-center border animate-fade-in ${
+                        scanMessage.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                        scanMessage.type === 'error' ? 'bg-rose-50 text-rose-600 border-rose-100' :
+                        'bg-slate-50 text-slate-500 border-slate-100'
+                    }`}>
+                        <p className="text-[10px] font-black uppercase tracking-widest mb-1">{scanMessage.type}</p>
+                        <p className="text-xs font-bold uppercase tracking-tight">{scanMessage.text}</p>
+                    </div>
+                )}
+                
+                <div className="text-center">
+                    <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em]">Node ID: {currentUser?.id.slice(-8).toUpperCase() || 'NULL'}</p>
+                </div>
             </div>
-        </div>
+        </ModalShell>
     );
 };
 

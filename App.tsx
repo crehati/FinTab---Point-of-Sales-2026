@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo, useLayoutEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
-import { supabase, isSupabaseActive } from './lib/supabase';
+import { supabase } from './lib/supabase';
 import { getStoredItem, setStoredItemAndDispatchEvent, getSystemLogo, formatCurrency, isRateLimited } from './lib/utils';
 import { 
     BellIcon, 
@@ -108,8 +108,8 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             </button>
             <Link to="/dashboard" className="flex items-center gap-3 group transition-all">
                 <div className="hidden sm:block">
-                    <h1 className="text-base font-black text-primary uppercase tracking-tight leading-none group-hover:text-blue-700 transition-colors">{businessProfile?.businessName || 'FinTab'}</h1>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1.5 opacity-80">Authorized Node</p>
+                    <h1 className="text-base font-extrabold text-primary uppercase tracking-tight leading-none group-hover:text-blue-700 transition-colors">{businessProfile?.businessName || 'FinTab'}</h1>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.25em] mt-1.5 opacity-80">System Node Active</p>
                 </div>
             </Link>
         </div>
@@ -120,7 +120,7 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             >
                 <CounterIcon className="w-6 h-6" />
                 {cartCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 badge-standard bg-primary min-w-[18px] h-[18px] !text-[8px] border-2 border-white dark:border-gray-900 flex items-center justify-center font-black shadow-sm animate-scale-in">
+                    <span className="absolute -top-0.5 -right-0.5 badge-standard bg-primary min-w-[18px] h-[18px] !text-[8px] border-2 border-white dark:border-gray-900 flex items-center justify-center font-bold shadow-sm animate-scale-in">
                         {cartCount > 99 ? '99+' : cartCount}
                     </span>
                 )}
@@ -135,11 +135,11 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             <Link to="/profile" className="flex items-center gap-3 pl-2 group transition-all">
                 <div className="relative">
                     <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(currentUser?.name || 'User')}`} className="w-9 h-9 rounded-2xl object-cover shadow-sm border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all duration-300" />
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-gray-900 rounded-full shadow-sm"></div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-gray-900 rounded-full shadow-sm"></div>
                 </div>
                 <div className="hidden md:block text-left">
-                    <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tight group-hover:text-primary transition-colors">{currentUser?.name || 'Terminal'}</p>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1 opacity-70">{currentUser?.role || 'Guest'}</p>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-tight group-hover:text-primary transition-colors">{currentUser?.name || 'Terminal'}</p>
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest mt-0.5 opacity-70">{currentUser?.role || 'Guest'}</p>
                 </div>
             </Link>
         </div>
@@ -154,8 +154,8 @@ export class ErrorBoundary extends React.Component<{ children?: React.ReactNode 
             return (
                 <div className="min-h-screen flex items-center justify-center bg-slate-50 p-8 font-sans">
                     <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center">
-                        <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter mb-4">System Critical Halt</h2>
-                        <button onClick={() => window.location.reload()} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Re-Initialize Node</button>
+                        <h2 className="text-2xl font-extrabold text-slate-900 uppercase tracking-tighter mb-4">Critical Interface Halt</h2>
+                        <button onClick={() => window.location.reload()} className="btn-base btn-primary w-full">Re-Initialize Terminal</button>
                     </div>
                 </div>
             );
@@ -167,8 +167,8 @@ export class ErrorBoundary extends React.Component<{ children?: React.ReactNode 
 const LoadingScreen = () => (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950">
         <div className="flex flex-col items-center gap-6">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Initializing Grid Node</p>
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em]">Initializing Security Grid</p>
         </div>
     </div>
 );
@@ -213,9 +213,17 @@ const App = () => {
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [ledgerEntries, setLedgerEntries] = useState([]);
 
+    // Logic: Aggregated Yield
+    const netProfit = useMemo(() => {
+        const rev = sales.filter(s => FINALIZED_SALE_STATUSES.includes(s.status)).reduce((s, x) => s + x.total, 0);
+        const exp = expenses.filter(e => e.status !== 'deleted').reduce((s, x) => s + x.amount, 0);
+        return rev - exp;
+    }, [sales, expenses]);
+
     // 1. Lifecycle & Identity Sync
     useEffect(() => {
         let mounted = true;
+        let authListener = null;
 
         const syncIdentity = async (session) => {
             if (!session?.user) {
@@ -228,6 +236,7 @@ const App = () => {
             }
 
             try {
+                await supabase.wait();
                 const { data: memberships, error } = await supabase
                     .from('memberships')
                     .select('business_id, role')
@@ -236,7 +245,7 @@ const App = () => {
                 if (!mounted) return;
 
                 if (error) {
-                    console.error("[FinTab Auth] Identity Error:", error.message || JSON.stringify(error));
+                    console.error("[FinTab Auth] Identity Error:", error.message);
                     setMembershipsCount(0); 
                 } else {
                     const count = memberships?.length || 0;
@@ -255,7 +264,7 @@ const App = () => {
                     }
                 }
             } catch (err) {
-                console.error("[FinTab Auth] Identity Crash:", err.message || JSON.stringify(err));
+                console.error("[FinTab Auth] Identity Crash:", err.message);
                 if (mounted) setMembershipsCount(0);
             } finally {
                 if (mounted) setIsAuthLoading(false);
@@ -263,6 +272,7 @@ const App = () => {
         };
 
         const bootAuth = async () => {
+            await supabase.wait();
             const { data: { session } } = await supabase.auth.getSession();
             if (!mounted) return;
             if (session) {
@@ -272,24 +282,27 @@ const App = () => {
                 setAuthUserId(null);
                 setIsAuthLoading(false);
             }
+
+            const { data } = supabase.auth.onAuthStateChange((event, session) => {
+                setAuthUserId(session?.user?.id || null);
+                if (event === 'SIGNED_OUT') {
+                    if (mounted) {
+                        logoutJustHappenedRef.current = true;
+                        setCurrentUser(null);
+                        setActiveBusinessId(null);
+                        setMembershipsCount(0);
+                        setIsAuthLoading(false);
+                        localStorage.removeItem('fintab_active_business_id');
+                    }
+                } else if (session) {
+                    syncIdentity(session);
+                }
+            });
+            authListener = data;
         };
 
         bootAuth();
-        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-            setAuthUserId(session?.user?.id || null);
-            if (event === 'SIGNED_OUT') {
-                if (mounted) {
-                    logoutJustHappenedRef.current = true;
-                    setCurrentUser(null);
-                    setActiveBusinessId(null);
-                    setMembershipsCount(0);
-                    setIsAuthLoading(false);
-                    localStorage.removeItem('fintab_active_business_id');
-                }
-            } else if (session) {
-                syncIdentity(session);
-            }
-        });
+
         return () => {
             mounted = false;
             if (authListener?.subscription) authListener.subscription.unsubscribe();
@@ -302,13 +315,12 @@ const App = () => {
 
         const fetchOperationalData = async () => {
             try {
-                const { data: prods, error: prodErr } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
-                if (prodErr) console.error("[FinTab Data] Products sync failed:", prodErr.message);
-                else if (prods) setProducts(prods.map(mapProductFromDb));
+                await supabase.wait();
+                const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
+                if (prods) setProducts(prods.map(mapProductFromDb));
 
-                const { data: sls, error: saleErr } = await supabase.from('sales').select('*').eq('business_id', activeBusinessId);
-                if (saleErr) console.error("[FinTab Data] Sales sync failed:", saleErr.message);
-                else if (sls) setSales(sls);
+                const { data: sls } = await supabase.from('sales').select('*').eq('business_id', activeBusinessId);
+                if (sls) setSales(sls);
 
                 const { data: bizNode } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
                 if (bizNode) setBusinessProfile({
@@ -317,117 +329,59 @@ const App = () => {
                     logo: bizNode.profile?.logo, id: bizNode.id
                 });
             } catch (err) {
-                console.error("[FinTab Data] Node Sync Error:", err.message || JSON.stringify(err));
+                console.error("[FinTab Data] Node Sync Error:", err.message);
             }
         };
         fetchOperationalData();
     }, [activeBusinessId, authUserId]);
 
-    // 3. Persistent Inventory Handlers
+    // Financial Workflow Actions
+    const initiateWorkflow = async (type, auditId, amount, metadata) => {
+        const { data, error } = await supabase.from('approval_requests').insert({
+            type, amount, metadata, business_id: activeBusinessId, created_by: currentUser.id, status: 'pending_v1'
+        }).select().single();
+        return data?.id || null;
+    };
+
+    const advanceWorkflow = async (requestId, status) => {
+        const { error } = await supabase.from('approval_requests').update({ status }).eq('id', requestId);
+        return !error;
+    };
+
+    // Inventory Handlers
     const handleSaveProduct = async (productData: Product, isEditing: boolean) => {
         if (!activeBusinessId) return;
         const payload = mapProductToDb(productData, activeBusinessId);
-        
         try {
             const { data, error } = isEditing 
                 ? await supabase.from('products').update(payload).eq('id', productData.id).select().single()
                 : await supabase.from('products').insert([payload]).select().single();
-            
-            if (error) throw error;
             if (data) {
-                const savedProduct = mapProductFromDb(data);
-                setProducts(prev => isEditing 
-                    ? prev.map(p => p.id === savedProduct.id ? savedProduct : p) 
-                    : [savedProduct, ...prev]
-                );
+                const saved = mapProductFromDb(data);
+                setProducts(prev => isEditing ? prev.map(p => p.id === saved.id ? saved : p) : [saved, ...prev]);
             }
-        } catch (err) {
-            console.error("Supabase Save Error:", err.message || JSON.stringify(err));
-            alert(`Protocol Violation: ${err.message || 'Could not commit asset to registry. Check if your database table matches the required schema.'}`);
-        }
+        } catch (err) { console.error("Registry error:", err.message); }
     };
 
     const handleDeleteProduct = async (productId: string) => {
-        try {
-            const { error } = await supabase.from('products').delete().eq('id', productId);
-            if (error) throw error;
-            setProducts(prev => prev.filter(p => p.id !== productId));
-        } catch (err) {
-            console.error("Supabase Delete Error:", err.message || JSON.stringify(err));
-            alert("Registry Error: Could not purge asset node.");
-        }
+        const { error } = await supabase.from('products').delete().eq('id', productId);
+        if (!error) setProducts(prev => prev.filter(p => p.id !== productId));
     };
 
-    const handleSaveStockAdjustment = async (productId: string, adjustment: { type: 'add' | 'remove'; quantity: number; reason: string }) => {
+    const handleSaveStockAdjustment = async (productId: string, adjustment: any) => {
         const product = products.find(p => p.id === productId);
         if (!product) return;
-
-        const qtyShift = adjustment.type === 'add' ? adjustment.quantity : -adjustment.quantity;
-        const newStock = product.stock + qtyShift;
-
-        const newHistoryItem: StockAdjustment = {
-            date: new Date().toISOString(),
-            userId: currentUser?.id || 'system',
-            type: adjustment.type,
-            quantity: adjustment.quantity,
-            reason: adjustment.reason,
-            newStockLevel: newStock
-        };
-
-        const updatedHistory = [newHistoryItem, ...(product.stockHistory || [])];
-
-        try {
-            const { data, error } = await supabase.from('products')
-                .update({ stock: newStock, stock_history: updatedHistory })
-                .eq('id', productId)
-                .select()
-                .single();
-            
-            if (error) throw error;
-            if (data) {
-                setProducts(prev => prev.map(p => p.id === productId ? mapProductFromDb(data) : p));
-            }
-        } catch (err) {
-            console.error("Supabase Stock Adjustment Error:", err.message || JSON.stringify(err));
-            alert("Logistics Error: Could not synchronize quantum shift.");
-        }
+        const newStock = product.stock + (adjustment.type === 'add' ? adjustment.quantity : -adjustment.quantity);
+        const shift = { date: new Date().toISOString(), userId: currentUser.id, type: adjustment.type, quantity: adjustment.quantity, reason: adjustment.reason, newStockLevel: newStock };
+        const { data } = await supabase.from('products').update({ stock: newStock, stock_history: [shift, ...(product.stockHistory || [])] }).eq('id', productId).select().single();
+        if (data) setProducts(prev => prev.map(p => p.id === productId ? mapProductFromDb(data) : p));
     };
 
-    // 4. Sales Processing (with Stock Deduction)
     const handleProcessSale = async (sale: Sale) => {
-        try {
-            // 1. Persist Sale
-            const { data: savedSale, error: saleError } = await supabase.from('sales').insert([{
-                ...sale, business_id: activeBusinessId, items: sale.items
-            }]).select().single();
-            
-            if (saleError) throw saleError;
-
-            // 2. Deduct Stock for items (Professional atomic update simulation)
-            for (const item of sale.items) {
-                const product = products.find(p => p.id === item.product.id);
-                if (product) {
-                    const newStock = product.stock - item.quantity;
-                    const shift: StockAdjustment = {
-                        date: new Date().toISOString(), userId: currentUser.id, type: 'remove',
-                        quantity: item.quantity, reason: `Finalized Sale (ID: ${savedSale.id.slice(-6)})`, newStockLevel: newStock
-                    };
-                    await supabase.from('products')
-                        .update({ stock: newStock, stock_history: [shift, ...(product.stockHistory || [])] })
-                        .eq('id', product.id);
-                }
-            }
-
-            // 3. Local Sync
+        const { data: savedSale } = await supabase.from('sales').insert([{ ...sale, business_id: activeBusinessId, items: sale.items }]).select().single();
+        if (savedSale) {
             setSales(prev => [savedSale, ...prev]);
-            // Refresh products to reflect new stock
-            const { data: refreshedProds } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
-            if (refreshedProds) setProducts(refreshedProds.map(mapProductFromDb));
-            
             setCart([]);
-        } catch (err) {
-            console.error("Transaction Critical Failure:", err.message || JSON.stringify(err));
-            alert("Settlement Error: Sale recorded but inventory sync failed. Manual audit required.");
         }
     };
 
@@ -488,9 +442,29 @@ const App = () => {
                     <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} cartCount={cart.reduce((s, i) => s + i.quantity, 0)} notifications={notifications} onMarkNotifRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, isRead: true} : n))} onMarkAllNotifsRead={() => setNotifications(p => p.map(n => ({...n, isRead: true})))} />
                     <main className="p-4 md:p-8 flex-1">
                         <Routes>
-                            <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} />} />
+                            <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} advanceWorkflow={advanceWorkflow} />} />
+                            <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={receiptSettings} />} />
+                            <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={receiptSettings} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={ownerSettings} ledgerEntries={ledgerEntries} />} />
                             <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} onSaveStockAdjustment={handleSaveStockAdjustment} handleSaveProduct={handleSaveProduct} onDeleteProduct={handleDeleteProduct} currentUser={currentUser} users={users} />} />
+                            <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={receiptSettings} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
                             <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onProcessSale={handleProcessSale} onClearCart={() => setCart([])} receiptSettings={receiptSettings} t={t} onAddCustomer={(c) => { const nc = {...c, id: Date.now().toString(), purchaseHistory: []}; setCustomers(p => [nc, ...p]); return nc; }} currentUser={currentUser} businessSettings={businessSettings} printerSettings={printerSettings} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} />} />
+                            <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={() => {}} currentUser={currentUser} printerSettings={printerSettings} />} />
+                            <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={receiptSettings} onDeleteSale={() => {}} currentUser={currentUser} printerSettings={printerSettings} />} />
+                            <Route path="commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={receiptSettings} />} />
+                            <Route path="expenses" element={<Expenses expenses={expenses} handleSaveExpense={() => {}} bankAccounts={bankAccounts} t={t} receiptSettings={receiptSettings} />} />
+                            <Route path="expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={() => {}} receiptSettings={receiptSettings} t={t} />} />
+                            <Route path="customers" element={<Customers customers={customers} setCustomers={setCustomers} t={t} receiptSettings={receiptSettings} />} />
+                            <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
+                            <Route path="investors" element={<InvestorPage users={users} netProfit={netProfit} products={products} t={t} receiptSettings={receiptSettings} currentUser={currentUser} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={initiateWorkflow} />} />
+                            <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} initiateWorkflow={initiateWorkflow} advanceWorkflow={advanceWorkflow} t={t} />} />
+                            <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} setBankAccounts={setBankAccounts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} receiptSettings={receiptSettings} currentUser={currentUser} users={users} />} />
+                            <Route path="goods-costing" element={<GoodsCostingPage goodsCostings={goodsCostings} setGoodsCostings={setGoodsCostings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
+                            <Route path="goods-receiving" element={<GoodsReceivingPage goodsReceivings={goodsReceivings} setGoodsReceivings={setGoodsReceivings} products={products} setProducts={setProducts} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
+                            <Route path="weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={weeklyChecks} setWeeklyChecks={setWeeklyChecks} products={products} users={users} currentUser={currentUser} receiptSettings={receiptSettings} businessSettings={businessSettings} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} t={t} />} />
+                            <Route path="transactions" element={<Transactions deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={receiptSettings} currentUser={currentUser} onUpdateDepositStatus={() => {}} t={t} />} />
+                            <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} netProfit={netProfit} receiptSettings={receiptSettings} t={t} businessSettings={businessSettings} ownerSettings={ownerSettings} onRequestWithdrawal={() => {}} handleUpdateCustomPaymentStatus={() => {}} handleInitiateCustomPayment={() => {}} businessProfile={businessProfile} onUpdateWithdrawalStatus={() => {}} onConfirmWithdrawalReceived={() => {}} companyValuations={[]} onSwitchUser={() => {}} onUpdateCurrentUserProfile={() => {}} />} />
+                            <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={receiptSettings} setReceiptSettings={setReceiptSettings} businessSettings={businessSettings} onUpdateBusinessSettings={setBusinessSettings} businessProfile={businessProfile} onUpdateBusinessProfile={setBusinessProfile} ownerSettings={ownerSettings} onUpdateOwnerSettings={setOwnerSettings} printerSettings={printerSettings} onUpdatePrinterSettings={setPrinterSettings} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} />} />
+                            <Route path="alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} onDismiss={() => {}} onMarkRead={() => {}} receiptSettings={receiptSettings} currentUser={currentUser} />} />
                             <Route path="*" element={<Navigate to="dashboard" replace />} />
                         </Routes>
                     </main>

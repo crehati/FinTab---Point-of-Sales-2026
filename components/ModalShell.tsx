@@ -1,5 +1,5 @@
-
-import React, { useEffect, useCallback } from 'react';
+// @ts-nocheck
+import React, { useEffect, useCallback, useRef } from 'react';
 import SafePortal from './SafePortal';
 import { CloseIcon } from '../constants';
 
@@ -24,6 +24,8 @@ const ModalShell: React.FC<ModalShellProps> = ({
     maxWidth = 'max-w-lg',
     closeOnBackdropClick = true
 }) => {
+    const modalRef = useRef<HTMLDivElement>(null);
+
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
         if (e.key === 'Escape') onClose();
     }, [onClose]);
@@ -53,7 +55,6 @@ const ModalShell: React.FC<ModalShellProps> = ({
                 className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 font-sans overflow-hidden"
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="modal-title"
             >
                 <div 
                     className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in" 
@@ -62,32 +63,40 @@ const ModalShell: React.FC<ModalShellProps> = ({
                 />
                 
                 <div 
-                    className={`relative w-full ${maxWidth} max-h-[95vh] flex flex-col bg-white dark:bg-gray-950 rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-scale-in border border-white/10 dark:border-white/5`}
+                    ref={modalRef}
+                    className={`relative w-full ${maxWidth} max-h-[92vh] flex flex-col bg-white dark:bg-gray-950 rounded-[2.5rem] sm:rounded-[3rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] overflow-hidden animate-scale-in border border-white/10 dark:border-white/5`}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    
-                    <header className="flex-shrink-0 p-6 sm:p-8 border-b dark:border-gray-800 flex justify-between items-start bg-white dark:bg-gray-950 z-10">
-                        <div className="pr-10 min-w-0">
-                            <h2 id="modal-title" className="text-lg md:text-2xl font-bold text-slate-900 dark:text-white uppercase tracking-tighter leading-none truncate">{title}</h2>
+                    <header className="flex-shrink-0 p-8 sm:p-10 bg-[#0F172A] flex justify-between items-start z-10 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                        
+                        <div className="pr-12 min-w-0 relative z-10">
                             {description && (
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2 truncate">{description}</p>
+                                <p className="text-[10px] font-bold text-primary uppercase tracking-[0.3em] mb-2">
+                                    {description}
+                                </p>
                             )}
+                            <h2 className="text-2xl sm:text-3xl font-extrabold text-white uppercase tracking-tight leading-tight truncate">
+                                {title}
+                            </h2>
                         </div>
+                        
                         <button 
                             onClick={onClose} 
-                            className="p-2 sm:p-3 -mr-2 sm:-mr-3 -mt-2 rounded-2xl text-slate-400 hover:bg-slate-50 dark:hover:bg-gray-800 transition-all active:scale-90 flex-shrink-0 no-print"
-                            aria-label="Close modal"
+                            className="relative z-20 p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-all active:scale-90 no-print"
                         >
-                            <CloseIcon className="w-5 h-5 sm:w-6 sm:h-6" />
+                            <CloseIcon className="w-6 h-6" />
                         </button>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar min-h-0 bg-white dark:bg-gray-950">
-                        {children}
+                    <main className="flex-1 overflow-y-auto p-8 sm:p-10 custom-scrollbar min-h-0 bg-white dark:bg-gray-950">
+                        <div className="animate-fade-in-up">
+                            {children}
+                        </div>
                     </main>
 
                     {footer && (
-                        <footer className="flex-shrink-0 p-6 sm:p-8 border-t dark:border-gray-800 bg-slate-50/50 dark:bg-gray-800/50 flex flex-col sm:flex-row-reverse gap-3 z-10 no-print">
+                        <footer className="flex-shrink-0 px-8 py-8 sm:px-10 border-t border-slate-50 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-col sm:flex-row-reverse gap-4 z-10 no-print">
                             {footer}
                         </footer>
                     )}

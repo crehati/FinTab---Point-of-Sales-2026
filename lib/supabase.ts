@@ -16,93 +16,93 @@ let supabaseUrl = getEnvValue('VITE_SUPABASE_URL');
 let supabaseAnonKey = getEnvValue('VITE_SUPABASE_ANON_KEY');
 
 let clientInstance: any = null;
-let configPromise: Promise<void> | null = null;
+let initializationPromise: Promise<any> | null = null;
+
+const isValidUrl = (url: string) => {
+    try { return !!new URL(url); } catch (e) { return false; }
+};
 
 const initializeClient = (url: string, key: string) => {
-  if (!url || !key) return;
+  if (!url || !key || !isValidUrl(url)) {
+      console.warn('[FinTab Integrity] Invalid or missing Supabase credentials.');
+      return null;
+  }
   try {
-    clientInstance = createClient(url, key, {
+    const client = createClient(url, key, {
       auth: { persistSession: true, autoRefreshToken: true }
     });
-    const maskedKey = key ? `***${key.slice(-6)}` : 'MISSING';
-    console.info(`[FinTab Integrity] Supabase client ACTIVE. Target: ${url}, NodeKey: ${maskedKey}`);
+    console.info(`[FinTab Integrity] Supabase node live at: ${url}`);
+    return client;
   } catch (err) {
-    console.error('[FinTab Integrity] Failed to initialize Supabase client:', err);
+    console.error('[FinTab Integrity] Driver initialization failed:', err);
+    return null;
   }
 };
 
+// Immediate init if env exists
 if (supabaseUrl && supabaseAnonKey) {
-  initializeClient(supabaseUrl, supabaseAnonKey);
-} else {
-  console.info('[FinTab Integrity] Attempting secure fallback via /runtime-config.json...');
-  configPromise = fetch('/runtime-config.json')
-    .then(r => r.json())
-    .then(config => {
-      if (config.VITE_SUPABASE_URL && config.VITE_SUPABASE_ANON_KEY) {
-        initializeClient(config.VITE_SUPABASE_URL, config.VITE_SUPABASE_ANON_KEY);
-      }
-    })
-    .catch(err => {
-      console.error('[FinTab Integrity] Critical: Configuration node unavailable.', err);
-    });
+  clientInstance = initializeClient(supabaseUrl, supabaseAnonKey);
 }
 
-/**
- * Creates a deep proxy that preserves 'this' context for methods
- * and prevents crashing on internal property probing.
- */
-const createDeepProxy = (path: string = 'supabase'): any => {
-  const proxyTarget = (...args: any[]) => {
-    const resolveCall = (client: any) => {
-      const parts = path.split('.').slice(1);
-      let target = client;
-      let parent = null;
-      
-      for (const part of parts) {
-        parent = target;
-        if (target === undefined || target === null) break;
-        target = target[part];
-      }
-      
-      if (typeof target === 'function') {
-        return target.apply(parent, args);
-      }
-      return target;
-    };
-
-    if (clientInstance) return resolveCall(clientInstance);
-    
-    return (configPromise || Promise.resolve()).then(() => {
-      if (clientInstance) return resolveCall(clientInstance);
-      return { data: null, error: { message: 'Supabase client not initialized' } };
-    });
-  };
-
-  return new Proxy(proxyTarget, {
-    get: (target, prop) => {
-      // Return standard Promise methods as undefined to prevent Proxy-as-Promise confusion
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined;
-      
-      // Handle internal properties and probes immediately
-      const internalProps = ['_debug', 'initializePromise', 'constructor', 'toJSON', 'prototype', '__proto__'];
-      if (typeof prop === 'string' && (internalProps.includes(prop) || prop.startsWith('_'))) {
-        if (clientInstance) {
-          const parts = path.split('.').slice(1);
-          let current = clientInstance;
-          for (const part of parts) {
-            if (current === undefined || current === null) break;
-            current = current[part];
-          }
-          return current ? current[prop] : undefined;
-        }
-        return undefined;
-      }
-      
-      return createDeepProxy(`${path}.${String(prop)}`);
-    }
-  });
+const getClient = async () => {
+  if (clientInstance) return clientInstance;
+  
+  if (!initializationPromise) {
+    console.info('[FinTab Integrity] Attempting secure fallback via /runtime-config.json...');
+    initializationPromise = fetch('/runtime-config.json')
+      .then(r => r.json())
+      .then(config => {
+        clientInstance = initializeClient(config.VITE_SUPABASE_URL, config.VITE_SUPABASE_ANON_KEY);
+        return clientInstance;
+      })
+      .catch(err => {
+        console.error('[FinTab Integrity] Critical: Node config unavailable.', err);
+        return null;
+      });
+  }
+  return initializationPromise;
 };
 
-export const isSupabaseActive = () => Boolean(clientInstance);
-export const supabase = createDeepProxy();
+/**
+ * Proxy for Supabase
+ * Ensures methods are bound to the client instance to prevent "Cannot read rest of undefined" errors.
+ */
+const supabaseProxy = new Proxy({} as any, {
+  get: (target, prop) => {
+    if (prop === 'isInitialized') return !!clientInstance;
+    if (prop === 'wait') return getClient;
+
+    // If client is ready, return real property (bound if function)
+    if (clientInstance) {
+        const val = clientInstance[prop];
+        return typeof val === 'function' ? val.bind(clientInstance) : val;
+    }
+
+    // Special handling for Auth before initialization to prevent mount crashes
+    if (prop === 'auth') {
+      return {
+        getSession: () => getClient().then(c => c?.auth.getSession() || { data: { session: null }, error: null }),
+        onAuthStateChange: (cb) => {
+          getClient().then(c => c?.auth.onAuthStateChange(cb));
+          return { data: { subscription: { unsubscribe: () => {} } } };
+        },
+        signOut: () => getClient().then(c => c?.auth.signOut())
+      };
+    }
+
+    // Fallback for database methods before initialization
+    // WARNING: Chaining will fail if this is hit. App.tsx must await supabase.wait()
+    return (...args: any[]) => {
+      console.warn(`[FinTab] Calling supabase.${String(prop)} before initialization. Chaining will fail.`);
+      return getClient().then(client => {
+        if (!client) throw new Error("FinTab Terminal Error: Supabase node not initialized.");
+        const method = client[prop];
+        return typeof method === 'function' ? method.bind(client)(...args) : method;
+      });
+    };
+  }
+});
+
+export const isSupabaseActive = () => !!clientInstance;
+export const supabase = supabaseProxy;
 export default supabase;

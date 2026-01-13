@@ -37,9 +37,7 @@ interface CounterProps {
 const getEffectivePrice = (product: Product, quantity: number): number => {
     if (!product) return 0;
     const basePrice = Number(product.price) || 0;
-    if (!product.tieredPricing || product.tieredPricing.length === 0) {
-        return basePrice;
-    }
+    if (!product.tieredPricing || product.tieredPricing.length === 0) return basePrice;
     const sortedTiers = [...product.tieredPricing].sort((a, b) => b.quantity - a.quantity);
     const applicableTier = sortedTiers.find(tier => quantity >= tier.quantity);
     return applicableTier ? (Number(applicableTier.price) || 0) : basePrice;
@@ -50,7 +48,6 @@ const CounterContent: React.FC<CounterProps> = (props) => {
     
     const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'pending_confirmation' | 'processing' | 'completed' | 'error'>('idle');
     const [completedSale, setCompletedSale] = useState<Sale | null>(null);
-    const [proformaInvoice, setProformaInvoice] = useState<Sale | null>(null);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [isBankModalOpen, setIsBankModalOpen] = useState(false);
     const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -70,7 +67,6 @@ const CounterContent: React.FC<CounterProps> = (props) => {
 
     const cs = String(receiptSettings.currencySymbol || '$');
 
-    // Action Permission Checks
     const canApplyDiscount = hasAccess(currentUser, 'SALES', 'APPLY_DISCOUNT', permissions);
     const canCreateSale = hasAccess(currentUser, 'SALES', 'CREATE_SALE', permissions);
     const canUseBank = hasAccess(currentUser, 'SALES', 'BANK_TRANSFER', permissions);
@@ -82,17 +78,15 @@ const CounterContent: React.FC<CounterProps> = (props) => {
             const price = item.variant ? (Number(item.variant.price) || 0) : getEffectivePrice(item.product, item.quantity);
             return sum + (price * (Number(item.quantity) || 0));
         }, 0);
-
         const nDiscount = canApplyDiscount ? Math.max(0, Number(discount) || 0) : 0;
         const nTaxRate = Math.max(0, Number(taxRate) || 0);
         const afterDiscount = Math.max(0, rawSubtotal - nDiscount);
         const calcTax = afterDiscount * (nTaxRate / 100);
         const finalTotal = afterDiscount + calcTax;
-
         return { subtotal: rawSubtotal, numericDiscount: nDiscount, numericTaxRate: nTaxRate, subtotalAfterDiscount: afterDiscount, tax: calcTax, total: finalTotal };
     }, [cart, discount, taxRate, canApplyDiscount]);
 
-    const { subtotal, numericDiscount, numericTaxRate, tax, total } = financialData;
+    const { subtotal, numericDiscount, total } = financialData;
 
     const selectedCustomer = useMemo(() => customers.find(c => c.id === selectedCustomerId), [customers, selectedCustomerId]);
     const selectedUser = useMemo(() => users.find(u => u.id === selectedUserId), [users, selectedUserId]);
@@ -111,71 +105,34 @@ const CounterContent: React.FC<CounterProps> = (props) => {
     const handleCheckout = () => {
         if (!canCreateSale) { setValidationError("Unauthorized Protocol: Access to 'Create Sale' denied."); return; }
         if (checkoutStatus === 'processing') return;
-
         if (!cart || cart.length === 0) { setValidationError("Protocol Violation: Digital basket is empty."); return; }
         if (!selectedCustomerId) { setValidationError("Identity verification required: select a client."); return; }
         if (!selectedUserId) { setValidationError("Processing entity required: select a staff member."); return; }
         if (!paymentMethod) { setValidationError("Financial protocol required: select a payment method."); return; }
         
-        if (paymentMethod === 'Bank Receipt' && !canUseBank) { setValidationError("Unauthorized: Bank Transfer protocol disabled for your role."); return; }
-        if (paymentMethod === 'Cash' && !canUseCash) { setValidationError("Unauthorized: Cash settlement disabled for your role."); return; }
-
         setValidationError('');
-        setCommitSnapshot({ 
-            ...financialData, 
-            customerId: selectedCustomerId, 
-            userId: selectedUserId, 
-            paymentMethod: paymentMethod, 
-            items: JSON.parse(JSON.stringify(cart)) 
-        });
+        setCommitSnapshot({ ...financialData, customerId: selectedCustomerId, userId: selectedUserId, paymentMethod: paymentMethod, items: JSON.parse(JSON.stringify(cart)) });
 
-        if (paymentMethod === 'Bank Receipt') {
-            setIsBankModalOpen(true);
-        } else {
-            setCheckoutStatus('pending_confirmation');
-            setIsConfirmModalOpen(true);
-        }
+        if (paymentMethod === 'Bank Receipt') setIsBankModalOpen(true);
+        else { setCheckoutStatus('pending_confirmation'); setIsConfirmModalOpen(true); }
     };
 
-    const handleConfirmSale = (paymentDetails: { cashReceived?: number; change?: number; bankReceiptNumber?: string; bankName?: string; bankAccountId?: string }) => {
+    const handleConfirmSale = (paymentDetails: any) => {
         if (!commitSnapshot || checkoutStatus === 'processing') return;
         setCheckoutStatus('processing');
         const { subtotal, numericDiscount, total, numericTaxRate, items, customerId, userId, paymentMethod } = commitSnapshot;
         
-        const totalCommission = items.reduce((commissionSum, item) => {
-            if (!item.product) return commissionSum;
-            const price = item.variant ? (Number(item.variant.price) || 0) : getEffectivePrice(item.product, item.quantity);
-            const itemSubtotal = price * (Number(item.quantity) || 0);
-            const proportionalDiscount = subtotal > 0 ? (itemSubtotal / subtotal) * numericDiscount : 0;
-            const commissionableValue = Math.max(0, itemSubtotal - proportionalDiscount);
-            const itemCommission = commissionableValue * ((Number(item.product.commissionPercentage) || 0) / 100);
-            return commissionSum + itemCommission;
-        }, 0);
-
-        const isBank = paymentMethod === 'Bank Receipt';
         const sale: Sale = {
-            id: `sale-${Date.now()}`,
-            date: new Date().toISOString(),
-            items: items || [],
-            customerId: String(customerId),
-            userId: String(userId),
-            subtotal: Number(subtotal) || 0,
-            tax: Number(tax) || 0,
-            discount: Number(numericDiscount) || 0,
-            total: Number(total) || 0,
-            paymentMethod: String(paymentMethod),
-            taxRate: Number(numericTaxRate) || 0,
-            status: isBank ? 'pending_bank_verification' : 'completed',
-            commission: Number(totalCommission) || 0,
-            cashReceived: Number(paymentDetails?.cashReceived) || 0,
-            change: Number(paymentDetails?.change) || 0,
-            bankReceiptNumber: paymentDetails?.bankReceiptNumber,
-            bankName: paymentDetails?.bankName,
-            bankAccountId: paymentDetails?.bankAccountId
+            id: `sale-${Date.now()}`, date: new Date().toISOString(), items: items || [], customerId: String(customerId), userId: String(userId),
+            subtotal: Number(subtotal) || 0, tax: Number(total - (subtotal - numericDiscount)) || 0, discount: Number(numericDiscount) || 0,
+            total: Number(total) || 0, paymentMethod: String(paymentMethod), taxRate: Number(numericTaxRate) || 0,
+            status: paymentMethod === 'Bank Receipt' ? 'pending_bank_verification' : 'completed',
+            cashReceived: Number(paymentDetails?.cashReceived) || 0, change: Number(paymentDetails?.change) || 0,
+            bankReceiptNumber: paymentDetails?.bankReceiptNumber, bankName: paymentDetails?.bankName, bankAccountId: paymentDetails?.bankAccountId
         };
 
         onProcessSale(sale);
-        if (!isBank) setCompletedSale(sale);
+        if (paymentMethod !== 'Bank Receipt') setCompletedSale(sale);
         setCheckoutStatus('completed');
         setIsConfirmModalOpen(false);
         setIsBankModalOpen(false);
@@ -183,105 +140,107 @@ const CounterContent: React.FC<CounterProps> = (props) => {
     };
 
     return (
-        <div className="max-w-4xl mx-auto space-y-xl font-sans pb-24">
-            <Card title={t('counter.title')} className="flex flex-col relative" headerContent={
-                cart.length > 0 && (
-                    <button onClick={() => setIsClearConfirmOpen(true)} className="px-md py-xs bg-rose-50 text-rose-600 text-[10px] font-bold uppercase rounded-lg hover:bg-rose-100">Reset Terminal</button>
-                )
-            }>
-                <div className="flex-grow overflow-y-auto -mx-lg px-lg min-h-[300px]">
+        <div className="max-w-4xl mx-auto space-y-10 font-sans pb-24 px-2 sm:px-0">
+            <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-50 dark:border-gray-800">
+                <header className="p-8 sm:p-10 border-b dark:border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+                    <div>
+                        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">{t('counter')}</h2>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Terminal Basket Entry</p>
+                    </div>
+                    {cart.length > 0 && (
+                        <button onClick={() => setIsClearConfirmOpen(true)} className="px-6 py-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-rose-100 transition-all active:scale-95">Reset Grid</button>
+                    )}
+                </header>
+
+                <div className="p-8 sm:p-10 min-h-[360px]">
                     {validationError && (
-                        <div className="mb-6 p-5 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-4 animate-shake">
-                            <WarningIcon className="w-5 h-5 text-rose-500 mt-0.5" />
-                            <p className="text-xs font-black text-rose-600 uppercase tracking-tight leading-relaxed">{validationError}</p>
+                        <div className="mb-10 p-6 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50 rounded-2xl flex items-start gap-4 animate-shake">
+                            <WarningIcon className="w-5 h-5 text-rose-500 mt-0.5 flex-shrink-0" />
+                            <p className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-tight leading-relaxed">{validationError}</p>
                         </div>
                     )}
 
                     {cart.length === 0 ? (
-                        <div className="text-center py-xxl flex flex-col items-center justify-center opacity-40">
-                            <div className="bg-slate-50 p-xl rounded-full mb-lg"><CartIcon className="h-16 w-16 text-slate-300" /></div>
-                            <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Digital Basket Empty</p>
+                        <div className="text-center py-28 flex flex-col items-center justify-center">
+                            <div className="bg-slate-50 dark:bg-gray-800/50 p-10 rounded-full mb-8 opacity-30"><CartIcon className="h-16 w-16 text-slate-300" /></div>
+                            <p className="font-black text-slate-300 dark:text-slate-600 uppercase tracking-[0.4em] text-[10px]">Digital Basket Empty</p>
                         </div>
                     ) : (
-                        <ul className="divide-y divide-slate-50">
+                        <ul className="divide-y divide-slate-50 dark:divide-gray-800">
                             {cart.map((item, idx) => {
                                 const price = item.variant ? (Number(item.variant.price) || 0) : getEffectivePrice(item.product, item.quantity);
                                 return (
-                                <li key={`${item.product.id}-${idx}`} className="py-md flex items-center group">
-                                    <div className="relative">
-                                        <img src={String(item.product.imageUrl)} className="w-20 h-20 rounded-2xl object-cover shadow-sm border border-slate-100" />
-                                        {item.variant && <div className="absolute -top-2 -right-2 bg-primary text-white text-[8px] font-bold px-sm py-xs rounded-lg uppercase">Variant</div>}
-                                    </div>
-                                    <div className="ml-lg flex-grow">
-                                        <p className="font-bold text-slate-900 uppercase tracking-tighter text-sm line-clamp-1">{String(item.product.name)}</p>
-                                        <div className="flex items-center gap-sm mt-sm">
-                                            <span className="text-xs font-bold text-slate-900">{cs}{price.toFixed(2)}</span>
-                                            {item.product.tieredPricing && item.product.tieredPricing.length > 0 && Number(item.quantity) >= Math.min(...item.product.tieredPricing.map(tp => tp.quantity)) && (
-                                                <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">Bulk Rate Active</span>
-                                            )}
+                                    <li key={`${item.product.id}-${idx}`} className="py-8 flex flex-col sm:flex-row sm:items-center gap-6 group">
+                                        <div className="relative w-20 h-20 flex-shrink-0">
+                                            <img src={String(item.product.imageUrl)} className="w-full h-full rounded-[1.5rem] object-cover shadow-sm border border-slate-100 dark:border-gray-800" />
+                                            {item.variant && <div className="absolute -top-2 -right-2 bg-primary text-white text-[7px] font-black px-2 py-1 rounded-lg uppercase shadow-lg">Variant</div>}
                                         </div>
-                                    </div>
-                                    <div className="flex items-center bg-slate-50 dark:bg-gray-900 rounded-2xl p-xs gap-xs border border-slate-100 dark:border-gray-700">
-                                        <button onClick={() => onUpdateCartItem(item.product, item.variant, item.quantity - 1)} className="w-10 h-10 rounded-xl text-lg font-bold text-slate-400 hover:text-primary transition-colors">-</button>
-                                        <input 
-                                            type="number" 
-                                            value={item.quantity} 
-                                            onChange={(e) => onUpdateCartItem(item.product, item.variant, parseInt(e.target.value) || 0)}
-                                            onFocus={(e) => e.target.select()}
-                                            className="w-12 h-10 text-center font-black text-slate-900 dark:text-white text-sm bg-white dark:bg-gray-800 border-none focus:ring-2 focus:ring-primary/20 rounded-lg tabular-nums outline-none"
-                                        />
-                                        <button onClick={() => onUpdateCartItem(item.product, item.variant, item.quantity + 1)} className="w-10 h-10 rounded-xl text-lg font-bold text-slate-400 hover:text-primary transition-colors">+</button>
-                                    </div>
-                                </li>
-                            )})}
+                                        <div className="flex-grow">
+                                            <p className="font-extrabold text-slate-900 dark:text-white uppercase tracking-tighter text-base line-clamp-1">{String(item.product.name)}</p>
+                                            <div className="flex items-center gap-3 mt-1.5">
+                                                <span className="text-xs font-black text-primary tabular-nums">{cs}{price.toFixed(2)}</span>
+                                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Unit Price</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center bg-slate-50 dark:bg-gray-950 rounded-2xl p-1 gap-1 border border-slate-100 dark:border-gray-800 w-fit">
+                                            <button onClick={() => onUpdateCartItem(item.product, item.variant, item.quantity - 1)} className="w-11 h-11 rounded-xl text-lg font-bold text-slate-400 hover:text-primary hover:bg-white dark:hover:bg-gray-800 transition-all active:scale-90">-</button>
+                                            <input type="number" value={item.quantity} onChange={(e) => onUpdateCartItem(item.product, item.variant, parseInt(e.target.value) || 0)} className="w-14 h-11 text-center font-black text-slate-900 dark:text-white text-sm bg-transparent border-none tabular-nums outline-none" />
+                                            <button onClick={() => onUpdateCartItem(item.product, item.variant, item.quantity + 1)} className="w-11 h-11 rounded-xl text-lg font-bold text-slate-400 hover:text-primary hover:bg-white dark:hover:bg-gray-800 transition-all active:scale-90">+</button>
+                                        </div>
+                                    </li>
+                                )
+                            })}
                         </ul>
                     )}
                 </div>
+
                 {cart.length > 0 && (
-                    <div className="mt-xl border-t border-slate-100 pt-lg space-y-xl">
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-xl">
-                            <div className="space-y-md">
-                                <div className={`p-lg bg-slate-50 rounded-2xl border border-slate-100 ${!canApplyDiscount ? 'opacity-40 grayscale' : ''}`}>
-                                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-sm block px-xs">Applied Discount ({cs})</label>
-                                    <input type="number" disabled={!canApplyDiscount} value={discount} onChange={(e) => setDiscount(e.target.value)} onFocus={(e) => e.target.select()} className="w-full bg-white border-2 border-transparent focus:border-primary rounded-xl px-lg py-md text-sm font-bold text-slate-900 outline-none" />
-                                    {!canApplyDiscount && <p className="text-[8px] font-black text-rose-400 uppercase mt-2">Discount protocol locked</p>}
+                    <footer className="p-8 sm:p-10 bg-slate-50/50 dark:bg-gray-950/50 border-t dark:border-gray-800">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-10">
+                            <div className="space-y-6">
+                                <div className={`p-6 bg-white dark:bg-gray-900 rounded-3xl border border-slate-100 dark:border-gray-800 shadow-sm ${!canApplyDiscount ? 'opacity-40' : ''}`}>
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3 block px-1">Applied Discount ({cs})</label>
+                                    <input type="number" disabled={!canApplyDiscount} value={discount} onChange={(e) => setDiscount(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-black outline-none focus:ring-4 focus:ring-primary/10 transition-all" />
                                 </div>
-                                <div className="p-lg bg-slate-50 rounded-2xl border border-slate-100">
-                                    <label className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-sm block px-xs">Tax Rate (%)</label>
-                                    <input type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} onFocus={(e) => e.target.select()} className="w-full bg-white border-2 border-transparent focus:border-primary rounded-xl px-lg py-md text-sm font-bold text-slate-900 outline-none" />
+                                <div className="p-6 bg-white dark:bg-gray-900 rounded-3xl border border-slate-100 dark:border-gray-800 shadow-sm">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3 block px-1">Tax Protocol (%)</label>
+                                    <input type="number" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-black outline-none focus:ring-4 focus:ring-primary/10 transition-all" />
                                 </div>
                             </div>
-                            <div className="bg-slate-900 rounded-[2.5rem] p-xl text-white shadow-2xl flex flex-col justify-between">
-                                <div className="space-y-sm">
-                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400"><span>Subtotal</span><span>{cs}{subtotal.toFixed(2)}</span></div>
-                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-rose-400"><span>Discount</span><span>-{cs}{numericDiscount.toFixed(2)}</span></div>
-                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-blue-400"><span>Tax</span><span>+{cs}{tax.toFixed(2)}</span></div>
+                            <div className="bg-slate-900 rounded-[2.5rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                                <div className="space-y-4 relative z-10">
+                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400"><span>Basket Sum</span><span>{cs}{subtotal.toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-rose-400"><span>Adjustment</span><span>-{cs}{numericDiscount.toFixed(2)}</span></div>
                                 </div>
-                                <div className="mt-xl pt-lg border-t border-white/10 flex justify-between items-end"><span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Total</span><span className="text-4xl font-bold tracking-tighter tabular-nums">{cs}{total.toFixed(2)}</span></div>
+                                <div className="mt-10 pt-8 border-t border-white/5 flex justify-between items-end relative z-10">
+                                    <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">Protocol Total</span>
+                                    <span className="text-5xl font-black tracking-tighter tabular-nums text-white">{cs}{total.toFixed(2)}</span>
+                                </div>
                             </div>
                         </div>
-                        <div className="space-y-md">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-md">
-                                <button onClick={() => setIsCustomerSelectModalOpen(true)} className="w-full p-lg border-2 rounded-2xl bg-white text-slate-900 text-left font-bold uppercase text-[10px] tracking-widest border-slate-100 hover:border-slate-300 truncate">{selectedCustomer ? selectedCustomer.name : 'Choose Identity'}</button>
-                                <button onClick={() => setIsUserSelectModalOpen(true)} className="w-full p-lg border-2 rounded-2xl bg-white text-slate-900 text-left font-bold uppercase text-[10px] tracking-widest border-slate-100 hover:border-slate-300 truncate">{selectedUser ? selectedUser.name : 'Select Staff'}</button>
-                                <button onClick={() => setIsPaymentMethodSelectModalOpen(true)} className="w-full p-lg border-2 rounded-2xl bg-white text-slate-900 text-left font-bold uppercase text-[10px] tracking-widest border-slate-100 hover:border-slate-300 truncate">{paymentMethod ? paymentMethod : 'Method'}</button>
+
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <button onClick={() => setIsCustomerSelectModalOpen(true)} className="flex-1 p-5 border-2 border-slate-100 dark:border-gray-800 rounded-2xl bg-white dark:bg-gray-900 text-slate-900 dark:text-white font-bold uppercase text-[10px] tracking-widest hover:border-primary/40 transition-all truncate text-left">{selectedCustomer ? selectedCustomer.name : 'Select Identity'}</button>
+                                <button onClick={() => setIsUserSelectModalOpen(true)} className="flex-1 p-5 border-2 border-slate-100 dark:border-gray-800 rounded-2xl bg-white dark:bg-gray-900 text-slate-900 dark:text-white font-bold uppercase text-[10px] tracking-widest hover:border-primary/40 transition-all truncate text-left">{selectedUser ? selectedUser.name : 'Verify Staff'}</button>
+                                <button onClick={() => setIsPaymentMethodSelectModalOpen(true)} className="flex-1 p-5 border-2 border-slate-100 dark:border-gray-800 rounded-2xl bg-white dark:bg-gray-900 text-slate-900 dark:text-white font-bold uppercase text-[10px] tracking-widest hover:border-primary/40 transition-all truncate text-left">{paymentMethod ? paymentMethod : 'Settlement'}</button>
                             </div>
-                            <button onClick={handleCheckout} className="btn-base btn-primary w-full py-5 text-sm" disabled={checkoutStatus === 'processing' || !canCreateSale}>
-                                {checkoutStatus === 'processing' ? 'Processing...' : 'Commit Protocol Sale'}
+                            <button onClick={handleCheckout} className="btn-base btn-primary w-full py-6 text-base" disabled={checkoutStatus === 'processing' || !canCreateSale}>
+                                {checkoutStatus === 'processing' ? 'Processing Node...' : 'Authorize Transaction'}
                             </button>
                         </div>
-                    </div>
+                    </footer>
                 )}
-            </Card>
+            </div>
 
             <PaymentConfirmationModal isOpen={isConfirmModalOpen} onClose={() => { setIsConfirmModalOpen(false); setCheckoutStatus('idle'); }} onConfirm={handleConfirmSale} total={commitSnapshot?.total || total} paymentMethod={commitSnapshot?.paymentMethod || paymentMethod} receiptSettings={receiptSettings} />
             <BankDetailsModal isOpen={isBankModalOpen} onClose={() => { setIsBankModalOpen(false); setCheckoutStatus('idle'); }} onConfirm={handleConfirmSale} total={commitSnapshot?.total || total} currencySymbol={cs} bankAccounts={bankAccounts} />
-            
             {completedSale && <ReceiptModal sale={completedSale} customers={customers} users={users} onClose={() => setCompletedSale(null)} receiptSettings={receiptSettings} onDelete={() => {}} currentUser={currentUser} t={t} isTrialExpired={isTrialExpired} printerSettings={printerSettings} />}
-            <CustomerSelectionModal isOpen={isCustomerSelectModalOpen} onClose={() => setIsCustomerSelectModalOpen(false)} customers={customers} onSelect={(id) => { setSelectedCustomerId(id); setIsCustomerSelectModalOpen(false); }} onAddNew={() => { setIsCustomerSelectModalOpen(false); }} />
-            <UserSelectionModal isOpen={isUserSelectModalOpen} onClose={() => setIsUserSelectModalOpen(false)} users={users} onSelect={(id) => { setSelectedUserId(id); setIsUserSelectModalOpen(false); }} />
-            <PaymentMethodSelectionModal isOpen={isPaymentMethodSelectModalOpen} onClose={() => setIsPaymentMethodSelectModalOpen(false)} paymentMethods={businessSettings.paymentMethods || []} onSelect={(method) => { setPaymentMethod(method); setIsPaymentMethodSelectModalOpen(false); }} />
-            <ConfirmationModal isOpen={isClearConfirmOpen} onClose={() => setIsClearConfirmOpen(false)} onConfirm={() => { resetCounter(); setIsClearConfirmOpen(false); }} title="Reset Terminal" message="Abort transaction and clear basket protocol?" />
+            <CustomerSelectionModal isOpen={isCustomerSelectModalOpen} onClose={() => setIsCustomerSelectModalOpen(false)} customers={customers} onSelect={setSelectedCustomerId} onAddNew={() => setIsCustomerSelectModalOpen(false)} />
+            <UserSelectionModal isOpen={isUserSelectModalOpen} onClose={() => setIsUserSelectModalOpen(false)} users={users} onSelect={setSelectedUserId} />
+            <PaymentMethodSelectionModal isOpen={isPaymentMethodSelectModalOpen} onClose={() => setIsPaymentMethodSelectModalOpen(false)} paymentMethods={businessSettings.paymentMethods || []} onSelect={setPaymentMethod} />
+            <ConfirmationModal isOpen={isClearConfirmOpen} onClose={() => setIsClearConfirmOpen(false)} onConfirm={() => { resetCounter(); setIsClearConfirmOpen(false); }} title="Reset Terminal" message="Abort transaction flow and purge the active basket registry?" />
         </div>
     );
 };

@@ -415,7 +415,7 @@ const App = () => {
         </div>
     );
 
-    if (membershipsCount === 0) return (
+    if (membershipsCount === 0 && location.pathname !== '/invite') return (
         <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
              <Routes>
                 <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
@@ -424,7 +424,7 @@ const App = () => {
         </div>
     );
 
-    if (!activeBusinessId) return (
+    if (!activeBusinessId && location.pathname !== '/invite') return (
         <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950`}>
              <Routes>
                 <Route path="/invite" element={<InvitePage currentUser={currentUser} />} />
@@ -442,6 +442,7 @@ const App = () => {
                     <Header currentUser={currentUser} businessProfile={businessProfile} onMenuClick={() => setIsSidebarOpen(true)} cartCount={cart.reduce((s, i) => s + i.quantity, 0)} notifications={notifications} onMarkNotifRead={(id) => setNotifications(p => p.map(n => n.id === id ? {...n, isRead: true} : n))} onMarkAllNotifsRead={() => setNotifications(p => p.map(n => ({...n, isRead: true})))} />
                     <main className="p-4 md:p-8 flex-1">
                         <Routes>
+                            <Route path="invite" element={<InvitePage currentUser={currentUser} />} />
                             <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={businessSettings} ownerSettings={ownerSettings} receiptSettings={receiptSettings} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} advanceWorkflow={advanceWorkflow} />} />
                             <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={receiptSettings} />} />
                             <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={receiptSettings} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={ownerSettings} ledgerEntries={ledgerEntries} />} />

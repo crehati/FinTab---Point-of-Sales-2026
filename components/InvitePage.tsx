@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -24,39 +25,64 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 return;
             }
 
-            // Save token to session just in case we need to log in
-            if (tokenFromUrl) sessionStorage.setItem('fintab_invite_token', tokenFromUrl);
+            // Persistence: Save token to session so it survives a login redirect
+            if (tokenFromUrl) {
+                sessionStorage.setItem('fintab_invite_token', tokenFromUrl);
+            }
 
             try {
                 await supabase.wait();
                 
-                // PHASE 1: Verify token validity (Public read if RLS allows or service call)
-                const { data: invite, error: fetchErr } = await supabase
+                // PHASE 1: Verify token existence without complex joins first to avoid RLS 406
+                // We fetch as a list and take the first item to avoid the "hard" .single() 406 error
+                const { data: invites, error: fetchErr } = await supabase
                     .from('invitations')
-                    .select('*, businesses(name)')
+                    .select('*')
                     .eq('token', token)
                     .eq('status', 'pending')
-                    .single();
+                    .limit(1);
 
-                if (fetchErr || !invite) {
-                    throw new Error('Invitation protocol invalid or already utilized.');
+                if (fetchErr) {
+                    console.error("Invite Lookup Error:", fetchErr);
+                    throw new Error(`Cloud Sync Failure: ${fetchErr.message}`);
+                }
+
+                const invite = invites && invites[0];
+
+                if (!invite) {
+                    // Check if it exists but is already accepted
+                    const { data: oldInvites } = await supabase
+                        .from('invitations')
+                        .select('status')
+                        .eq('token', token)
+                        .limit(1);
+                    
+                    if (oldInvites && oldInvites.length > 0 && oldInvites[0].status === 'accepted') {
+                        throw new Error('This invitation has already been utilized and the node is active.');
+                    }
+                    
+                    throw new Error('Invitation protocol invalid or expired. Please request a new token.');
                 }
                 
                 setInviteData(invite);
 
-                // PHASE 2: Identity Verification
+                // PHASE 2: Check authentication state
                 if (!currentUser) {
+                    // User is not logged in. We can't proceed with joining, 
+                    // so we show the "Login Required" state.
                     setStatus('awaiting_auth');
                     return;
                 }
 
+                // PHASE 3: Check Identity Match
+                // Invitations are bound to a specific email for security.
                 if (invite.invited_email.toLowerCase() !== currentUser.email.toLowerCase()) {
                     setStatus('error');
-                    setErrorMessage(`Credential Mismatch: This invite was issued for ${invite.invited_email}, but you are currently authenticated as ${currentUser.email}.`);
+                    setErrorMessage(`Identity Mismatch: This invite was issued for "${invite.invited_email}", but you are authenticated as "${currentUser.email}". Please sign in with the correct credentials.`);
                     return;
                 }
 
-                // PHASE 3: Atomic Node Injection
+                // PHASE 4: Atomic Node Injection (Join the business)
                 setStatus('joining');
                 
                 const { error: joinErr } = await supabase
@@ -68,32 +94,48 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                         joined_at: new Date().toISOString()
                     });
 
-                if (joinErr && joinErr.code !== '23505') throw joinErr;
+                // Error code 23505 is "unique_violation" (already a member)
+                if (joinErr && joinErr.code !== '23505') {
+                    throw new Error(`Membership injection failed: ${joinErr.message}`);
+                }
 
-                // PHASE 4: Terminal Finalization
-                await supabase
+                // PHASE 5: Decommission Token
+                const { error: updateErr } = await supabase
                     .from('invitations')
-                    .update({ status: 'accepted', accepted_at: new Date().toISOString(), accepted_by: currentUser.id })
+                    .update({ 
+                        status: 'accepted', 
+                        accepted_at: new Date().toISOString(), 
+                        accepted_by: currentUser.id 
+                    })
                     .eq('id', invite.id);
 
-                // Cleanup token from session
+                if (updateErr) {
+                    console.warn("Token decommissioning failed, but membership was created.", updateErr);
+                }
+
+                // Cleanup session storage
                 sessionStorage.removeItem('fintab_invite_token');
                 
                 setStatus('success');
+                
+                // Final Redirection: Sync with local state and boot dashboard
                 setTimeout(() => {
-                    // Redirect to select business or dashboard
                     localStorage.setItem('fintab_active_business_id', invite.business_id);
+                    // Force a hard reload to ensure membership state is re-synced globally
                     window.location.href = '/#/dashboard';
                     window.location.reload();
-                }, 2000);
+                }, 1800);
 
-            } catch (err) {
+            } catch (err: any) {
                 setStatus('error');
-                setErrorMessage(err.message);
+                setErrorMessage(err.message || 'An unknown protocol error occurred during node synchronization.');
             }
         };
 
-        processInvite();
+        // Only run if we aren't in a terminal success state
+        if (status !== 'success') {
+            processInvite();
+        }
     }, [token, currentUser, navigate]);
 
     return (
@@ -123,7 +165,7 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     <div className="space-y-8 animate-fade-in">
                         <div>
                             <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Verification Required</h2>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">Token Valid: Invitation from {inviteData?.businesses?.name || 'Authorized Business'}</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-4">Token Valid: Invitation for {inviteData?.invited_email}</p>
                         </div>
                         
                         <div className="p-6 bg-blue-50 dark:bg-blue-950/20 rounded-2xl border border-blue-100 dark:border-blue-900/50">
@@ -158,13 +200,13 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                             <p className="text-sm font-bold text-rose-700 dark:text-rose-400 leading-relaxed uppercase tracking-tight">{errorMessage}</p>
                         </div>
                         <div className="space-y-3">
-                            <button onClick={() => navigate('/')} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Return to Safety</button>
+                            <button onClick={() => navigate('/')} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Return to Login</button>
                             <button onClick={() => { sessionStorage.removeItem('fintab_invite_token'); window.location.reload(); }} className="text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-primary">Retry Sync</button>
                         </div>
                     </div>
                 )}
             </div>
-            <p className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4</p>
+            <p className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4.1</p>
         </div>
     );
 };

@@ -1,9 +1,8 @@
-
-import React, { memo, useMemo, useEffect, useState, useRef } from 'react';
-import { NavLink, Link, useLocation } from 'react-router-dom';
+import React, { memo, useMemo, useState, useRef, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { 
-    AIIcon, DashboardIcon, StorefrontIcon, InventoryIcon, CustomersIcon, StaffIcon, ReceiptsIcon, ProformaIcon, 
-    ExpensesIcon, ExpenseRequestIcon, SettingsIcon, ChatHelpIcon, LogoutIcon, TodayIcon, ReportsIcon, CloseIcon, 
+    DashboardIcon, InventoryIcon, CustomersIcon, StaffIcon, ReceiptsIcon, ProformaIcon, 
+    ExpensesIcon, ExpenseRequestIcon, SettingsIcon, LogoutIcon, TodayIcon, ReportsIcon, 
     CommissionIcon, InvestorIcon, ProfileIcon, TransactionIcon, CalculatorIcon, TruckIcon, BriefcaseIcon, 
     ChevronDownIcon, WeeklyCheckIcon, BankIcon 
 } from '../constants';
@@ -21,8 +20,6 @@ interface SidebarProps {
     permissions: AppPermissions;
     businessProfile: BusinessProfile | null;
     ownerSettings: OwnerSettings;
-    systemLogo: string;
-    isSafeMode?: boolean;
 }
 
 interface NavItem {
@@ -33,11 +30,20 @@ interface NavItem {
     action?: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, cart, currentUser, onLogout, permissions, businessProfile, ownerSettings, systemLogo, isSafeMode = false }) => {
+const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, currentUser, onLogout, permissions, ownerSettings }) => {
     const location = useLocation();
-    const navContainerRef = useRef<HTMLElement>(null);
+    const navScrollRef = useRef<HTMLElement>(null);
     const [isFinanceOpen, setIsFinanceOpen] = useState(true);
     const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+
+    // CRITICAL FIX: Lock sidebar scroll position on navigation
+    // This prevents the "Settings/Identity scroll jump" reported by the user.
+    useEffect(() => {
+        const currentScroll = navScrollRef.current?.scrollTop;
+        if (currentScroll !== undefined && navScrollRef.current) {
+            navScrollRef.current.scrollTop = currentScroll;
+        }
+    }, [location.pathname]);
 
     const allNavItems: Record<string, NavItem[]> = useMemo(() => ({
         main: [
@@ -73,7 +79,7 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, cart, currentUs
 
     const filterNavItems = (items: NavItem[]) => items.filter(item => {
         if (!item.module || !item.action) return true;
-        return hasAccess(currentUser, item.module, item.action, permissions, isSafeMode);
+        return hasAccess(currentUser, item.module, item.action, permissions);
     });
 
     const mainNavItems = filterNavItems(allNavItems.main);
@@ -88,7 +94,12 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, cart, currentUs
                 {title && <h3 className="px-4 mb-2 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{title}</h3>}
                 <div className="space-y-1">
                     {items.map(item => (
-                        <NavLink key={item.to} to={item.to} onClick={() => setIsOpen(false)} className={({ isActive }) => `flex items-center px-4 py-3 rounded-2xl transition-all group ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-[1.02]' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-gray-800'}`}>
+                        <NavLink 
+                            key={item.to} 
+                            to={item.to} 
+                            onClick={() => { if (window.innerWidth < 1024) setIsOpen(false); }} 
+                            className={({ isActive }) => `flex items-center px-4 py-3 rounded-2xl transition-all group ${isActive ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-gray-800/50'}`}
+                        >
                             <div className="flex-shrink-0 transition-transform group-hover:scale-110">{item.icon}</div>
                             <span className="ml-4 font-bold text-sm tracking-tight">{item.text}</span>
                         </NavLink>
@@ -100,17 +111,25 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, cart, currentUs
 
     return (
         <>
-            {isOpen && <div onClick={() => setIsOpen(false)} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[55] lg:hidden transition-opacity"/>}
-            <aside className={`fixed inset-y-0 left-0 w-72 bg-white dark:bg-gray-900 flex flex-col z-[60] lg:z-40 border-r border-slate-100 dark:border-gray-800 transform transition-transform duration-300 lg:translate-x-0 lg:static ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                <div className="h-20 flex items-center justify-center px-6 flex-shrink-0 bg-[#101F3E] relative"><h2 className="text-white text-2xl font-bold tracking-[0.3em] select-none pl-[0.3em]">FinTab</h2></div>
-                <nav ref={navContainerRef} className="flex-1 px-4 py-8 overflow-y-auto custom-scrollbar flex flex-col">
+            {isOpen && <div onClick={() => setIsOpen(false)} className="fixed inset-0 sidebar-mobile-overlay z-[55] lg:hidden transition-opacity"/>}
+            <aside className={`fixed inset-y-0 left-0 w-72 bg-white dark:bg-gray-900 flex flex-col z-[60] lg:z-40 border-r border-slate-100 dark:border-gray-800 transition-transform duration-300 lg:translate-x-0 lg:static h-full overflow-hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                <div className="h-16 flex items-center px-6 flex-shrink-0 bg-slate-900"><h2 className="text-white text-xl font-black tracking-widest">FinTab</h2></div>
+                <nav ref={navScrollRef} className="flex-1 px-4 py-8 overflow-y-auto custom-scrollbar flex flex-col">
                     <NavSection items={mainNavItems} />
                     <div className="mb-6">
-                        <button onClick={() => setIsFinanceOpen(!isFinanceOpen)} className="w-full flex items-center justify-between px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-gray-800 transition-all group mb-1">
+                        <button onClick={() => setIsFinanceOpen(!isFinanceOpen)} className="w-full flex items-center justify-between px-4 py-3 rounded-2xl text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-gray-800/50 transition-all group">
                             <div className="flex items-center"><div className="flex-shrink-0 transition-transform group-hover:scale-110"><BriefcaseIcon /></div><span className="ml-4 font-bold text-sm tracking-tight">{t('financeHeader')}</span></div>
                             <ChevronDownIcon className={`w-4 h-4 transition-transform duration-300 ${isFinanceOpen ? 'rotate-180' : ''}`} />
                         </button>
-                        {isFinanceOpen && <div className="space-y-1 ml-4 border-l-2 border-slate-100 dark:border-gray-800 pl-2 animate-fade-in">{financeNavItems.map(item => (<NavLink key={item.to} to={item.to} onClick={() => setIsOpen(false)} className={({ isActive }) => `flex items-center px-4 py-2 rounded-xl transition-all group ${isActive ? 'text-primary font-black' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'}`}><span className="text-[11px] font-bold uppercase tracking-widest">{item.text}</span></NavLink>))}</div>}
+                        {isFinanceOpen && (
+                            <div className="space-y-1 mt-1 ml-4 border-l-2 border-slate-100 dark:border-gray-800 pl-2 animate-fade-in">
+                                {financeNavItems.map(item => (
+                                    <NavLink key={item.to} to={item.to} onClick={() => { if (window.innerWidth < 1024) setIsOpen(false); }} className={({ isActive }) => `flex items-center px-4 py-2 rounded-xl transition-all ${isActive ? 'text-primary font-black' : 'text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}>
+                                        <span className="text-[10px] font-bold uppercase tracking-widest">{item.text}</span>
+                                    </NavLink>
+                                ))}
+                            </div>
+                        )}
                     </div>
                     <NavSection title={t('orgHeader')} items={managementNavItems} />
                     <NavSection title={t('terminalHeader')} items={appNavItems} />

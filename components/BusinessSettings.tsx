@@ -13,12 +13,11 @@ interface BusinessSettingsProps {
     onUpdateBusinessProfile: (profile: BusinessProfile | null) => void;
     onResetBusiness: () => void;
     t: (key: string) => string;
-    currentUser: User;
+    currentUser: User | null;
     onUpdateCurrentUserProfile: (profileData: { name?: string; avatarUrl?: string; phone?: string; initialInvestment?: number; }) => void;
     users: User[];
 }
 
-// Fix: Declaring children as optional in SectionErrorBoundaryProps to resolve missing property error in JSX
 interface SectionErrorBoundaryProps {
     children?: React.ReactNode;
     sectionTitle: string;
@@ -30,9 +29,6 @@ interface SectionErrorBoundaryState {
     error: Error | null;
 }
 
-/**
- * Section-level Error Boundary to prevent page-wide crashes
- */
 class SectionErrorBoundary extends React.Component<SectionErrorBoundaryProps, SectionErrorBoundaryState> {
     constructor(props: SectionErrorBoundaryProps) {
         super(props);
@@ -122,7 +118,6 @@ const WORKFLOW_ROLE_LABELS: Record<WorkflowRoleKey, { label: string; category: s
 };
 
 const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateSettings, businessProfile, onUpdateBusinessProfile, onResetBusiness, t, currentUser, onUpdateCurrentUserProfile, users }) => {
-    // Robust state initialization with fallbacks
     const [draftSettings, setDraftSettings] = useState<any>(settings || { paymentMethods: [] });
     const [draftProfile, setDraftProfile] = useState<any>(businessProfile || {});
     const [draftOwner, setDraftOwner] = useState<any>({ name: '', avatarUrl: '', initialInvestment: 0 });
@@ -229,7 +224,9 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
     };
     
     const handleSave = () => {
+        if (!currentUser) return;
         try {
+            // FIX: Atomic sync of owner identity & initial capital injection
             if (currentUser.role === 'Owner') {
                 const ownerFullPhoneNumber = `${ownerPhone.countryCode}${ownerPhone.localPhone.replace(/\D/g, '')}`;
                 onUpdateCurrentUserProfile({
@@ -273,10 +270,10 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
             currentRoles[roleKey] = [];
         } else if (allowMultiple) {
             if (!assignments.find((a: any) => a.userId === userId)) {
-                currentRoles[roleKey] = [...assignments, { userId, assignedBy: currentUser.name, assignedAt: new Date().toISOString() }];
+                currentRoles[roleKey] = [...assignments, { userId, assignedBy: currentUser?.name || 'Admin', assignedAt: new Date().toISOString() }];
             }
         } else {
-            currentRoles[roleKey] = [{ userId, assignedBy: currentUser.name, assignedAt: new Date().toISOString() }];
+            currentRoles[roleKey] = [{ userId, assignedBy: currentUser?.name || 'Admin', assignedAt: new Date().toISOString() }];
         }
 
         setDraftSettings({ ...draftSettings, workflowRoles: currentRoles });
@@ -293,7 +290,7 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
         const data = {
             settings,
             profile: businessProfile,
-            currentUser: { id: currentUser.id, role: currentUser.role },
+            currentUser: currentUser ? { id: currentUser.id, role: currentUser.role } : 'NULL',
             usersCount: users.length,
             errors: sectionErrors,
             version: "FT-OS-1.0.4"
@@ -301,7 +298,13 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
         navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => alert("Diagnostic payload copied to clipboard."));
     };
 
-    const isPrivileged = currentUser.role === 'Owner' || currentUser.role === 'Super Admin';
+    const isPrivileged = currentUser && (currentUser.role === 'Owner' || currentUser.role === 'Super Admin');
+
+    if (!currentUser) return (
+        <div className="flex items-center justify-center p-20 animate-pulse">
+            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        </div>
+    );
 
     return (
         <div className="max-w-4xl mx-auto space-y-10 pb-32 animate-fade-in font-sans">
@@ -532,12 +535,10 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
                 </SectionErrorBoundary>
             </div>
 
-            {/* Principal Command Center (Fixed) */}
             <div className="fixed bottom-24 right-6 lg:bottom-12 lg:right-12 z-[50] flex flex-col items-end gap-4">
                 {showDiagnostics && (
                     <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl border border-white/10 w-full max-w-sm mb-4 animate-scale-in">
                         <div className="flex justify-between items-center mb-6">
-                            {/* Fix: Added missing opening tag for h4 element */}
                             <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-primary">Terminal Diagnostics</h4>
                             <button onClick={() => setShowDiagnostics(false)}><CloseIcon className="w-4 h-4 text-slate-500" /></button>
                         </div>

@@ -7,7 +7,7 @@ import type { User } from '../types';
 import { BuildingIcon, LogoutIcon, PlusIcon, WarningIcon } from '../constants';
 
 interface SelectBusinessProps {
-    currentUser: User;
+    currentUser: User | null;
     onSelect: (businessId: string) => void;
     onLogout: () => void;
     isOwnerAdmin: boolean;
@@ -21,32 +21,41 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     const [manualToken, setManualToken] = useState('');
 
     useEffect(() => {
+        // CRITICAL GUARD: Prevent accessing 'id' of null
+        if (!currentUser || !currentUser.id) return;
+
         const fetchMemberships = async () => {
             setIsLoading(true);
             setError(null);
-            // Explicit selection to avoid JOIN recursion issues if backend RLS is misconfigured
-            const { data, error } = await supabase
-                .from('memberships')
-                .select(`
-                    role, 
-                    business_id, 
-                    businesses:business_id (
-                        name, 
-                        profile
-                    )
-                `)
-                .eq('user_id', currentUser.id);
             
-            if (error) {
-                console.error("[Terminal Hub] Membership fetch failed:", error);
-                setError(JSON.stringify(error, null, 2));
-            } else if (data) {
-                setMyMemberships(data);
+            try {
+                await supabase.wait();
+                const { data, error: fetchError } = await supabase
+                    .from('memberships')
+                    .select(`
+                        role, 
+                        business_id, 
+                        businesses:business_id (
+                            name, 
+                            profile
+                        )
+                    `)
+                    .eq('user_id', currentUser.id);
+                
+                if (fetchError) {
+                    console.error("[Terminal Hub] Membership fetch failed:", fetchError);
+                    setError(fetchError.message);
+                } else if (data) {
+                    setMyMemberships(data);
+                }
+            } catch (err) {
+                setError("Protocol Error: Cloud node unreachable.");
+            } finally {
+                setIsLoading(false);
             }
-            setIsLoading(false);
         };
         fetchMemberships();
-    }, [currentUser.id]);
+    }, [currentUser?.id]); // Only re-run when ID is stable
 
     const handleManualTokenSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -55,7 +64,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
         }
     };
 
-    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
+    if (isLoading || !currentUser) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex flex-col items-center justify-center p-6 font-sans">
@@ -73,7 +82,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                         <div className="p-6 bg-rose-50 border border-rose-100 rounded-2xl animate-shake">
                             <div className="flex items-center gap-2 text-rose-600 mb-3 font-black text-[10px] uppercase">
                                 <WarningIcon className="w-4 h-4" />
-                                Protocol Sync Failure (Recursion/500)
+                                Protocol Sync Failure
                             </div>
                             <pre className="text-[9px] font-mono text-rose-500 overflow-x-auto whitespace-pre-wrap">
                                 {error}
@@ -110,7 +119,6 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                         </div>
                     )}
 
-                    {/* Authority Guard: Additional Node Enrollment visible only to Owners/Admins */}
                     {myMemberships.length > 0 && isOwnerAdmin && (
                         <button 
                             onClick={() => navigate('/onboarding')}

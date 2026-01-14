@@ -15,12 +15,28 @@ const ROLES: Role[] = ['Manager', 'Cashier', 'SellerAgent', 'BankVerifier', 'Inv
 const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, onSave }) => {
     const [email, setEmail] = useState('');
     const [role, setRole] = useState<Role>('Cashier');
+    const [initialInvestment, setInitialInvestment] = useState('');
+
+    useEffect(() => {
+        if (isOpen) {
+            setEmail('');
+            setRole('Cashier');
+            setInitialInvestment('');
+        }
+    }, [isOpen]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!email) return;
-        onSave({ email, role });
+        
+        onSave({ 
+            email, 
+            role, 
+            initialInvestment: role === 'Investor' ? parseFloat(initialInvestment) || 0 : 0 
+        });
+        
         setEmail('');
+        setInitialInvestment('');
     };
 
     return (
@@ -47,7 +63,25 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, onSave }) => {
                         {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                 </div>
-                <button type="submit" className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Issue Protocol Link</button>
+                
+                {role === 'Investor' && (
+                    <div className="animate-fade-in pt-4">
+                        <label className="text-[9px] font-black text-primary uppercase tracking-widest block mb-2 px-1">Initial Capital Injection ($)</label>
+                        <input 
+                            type="number" 
+                            required 
+                            value={initialInvestment} 
+                            onChange={e => setInitialInvestment(e.target.value)} 
+                            className="w-full bg-primary/5 border-2 border-primary/10 rounded-2xl p-4 text-sm font-black text-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                            placeholder="0.00"
+                        />
+                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-3 ml-1 italic leading-relaxed">
+                            This value defines their starting equity share in the distributive yield pool.
+                        </p>
+                    </div>
+                )}
+
+                <button type="submit" className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 hover:bg-blue-700 transition-all">Issue Protocol Link</button>
             </form>
         </ModalShell>
     );

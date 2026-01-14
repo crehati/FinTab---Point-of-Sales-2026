@@ -12,7 +12,6 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
     const [errorMessage, setErrorMessage] = useState('');
     const [inviteData, setInviteData] = useState(null);
     
-    // Check for token in URL or Session Storage (fallback for login redirect)
     const tokenFromUrl = searchParams.get('token');
     const tokenFromSession = sessionStorage.getItem('fintab_invite_token');
     const token = tokenFromUrl || tokenFromSession;
@@ -25,7 +24,6 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 return;
             }
 
-            // Persistence: Save token to session so it survives a login redirect
             if (tokenFromUrl) {
                 sessionStorage.setItem('fintab_invite_token', tokenFromUrl);
             }
@@ -33,8 +31,7 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
             try {
                 await supabase.wait();
                 
-                // PHASE 1: Verify token existence without complex joins first to avoid RLS 406
-                // We fetch as a list and take the first item to avoid the "hard" .single() 406 error
+                // PHASE 1: Verify token existence (Use .limit instead of .single to avoid 406 on 0 results)
                 const { data: invites, error: fetchErr } = await supabase
                     .from('invitations')
                     .select('*')
@@ -50,56 +47,41 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 const invite = invites && invites[0];
 
                 if (!invite) {
-                    // Check if it exists but is already accepted
-                    const { data: oldInvites } = await supabase
-                        .from('invitations')
-                        .select('status')
-                        .eq('token', token)
-                        .limit(1);
-                    
-                    if (oldInvites && oldInvites.length > 0 && oldInvites[0].status === 'accepted') {
-                        throw new Error('This invitation has already been utilized and the node is active.');
-                    }
-                    
                     throw new Error('Invitation protocol invalid or expired. Please request a new token.');
                 }
                 
                 setInviteData(invite);
 
-                // PHASE 2: Check authentication state
                 if (!currentUser) {
-                    // User is not logged in. We can't proceed with joining, 
-                    // so we show the "Login Required" state.
                     setStatus('awaiting_auth');
                     return;
                 }
 
-                // PHASE 3: Check Identity Match
-                // Invitations are bound to a specific email for security.
-                if (invite.invited_email.toLowerCase() !== currentUser.email.toLowerCase()) {
+                if (invite.invited_email.toLowerCase() !== currentUser.email?.toLowerCase()) {
                     setStatus('error');
                     setErrorMessage(`Identity Mismatch: This invite was issued for "${invite.invited_email}", but you are authenticated as "${currentUser.email}". Please sign in with the correct credentials.`);
                     return;
                 }
 
-                // PHASE 4: Atomic Node Injection (Join the business)
                 setStatus('joining');
                 
+                // PHASE 4: ATOMIC NODE INJECTION
+                // Map the initial_investment from metadata to the membership record
                 const { error: joinErr } = await supabase
                     .from('memberships')
                     .insert({
                         business_id: invite.business_id,
                         user_id: currentUser.id,
                         role: invite.role,
+                        initial_investment: invite.metadata?.initial_investment || 0,
                         joined_at: new Date().toISOString()
                     });
 
-                // Error code 23505 is "unique_violation" (already a member)
                 if (joinErr && joinErr.code !== '23505') {
                     throw new Error(`Membership injection failed: ${joinErr.message}`);
                 }
 
-                // PHASE 5: Decommission Token
+                // Decommission the token
                 const { error: updateErr } = await supabase
                     .from('invitations')
                     .update({ 
@@ -109,19 +91,11 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     })
                     .eq('id', invite.id);
 
-                if (updateErr) {
-                    console.warn("Token decommissioning failed, but membership was created.", updateErr);
-                }
-
-                // Cleanup session storage
                 sessionStorage.removeItem('fintab_invite_token');
-                
                 setStatus('success');
                 
-                // Final Redirection: Sync with local state and boot dashboard
                 setTimeout(() => {
                     localStorage.setItem('fintab_active_business_id', invite.business_id);
-                    // Force a hard reload to ensure membership state is re-synced globally
                     window.location.href = '/#/dashboard';
                     window.location.reload();
                 }, 1800);
@@ -132,11 +106,10 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
             }
         };
 
-        // Only run if we aren't in a terminal success state
         if (status !== 'success') {
             processInvite();
         }
-    }, [token, currentUser, navigate]);
+    }, [token, currentUser, navigate, status]);
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center p-6 font-sans">
@@ -197,7 +170,7 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     <div className="space-y-8 animate-fade-in">
                         <h2 className="text-2xl font-black uppercase tracking-tighter text-rose-600">Protocol Failure</h2>
                         <div className="p-6 bg-rose-50 dark:bg-rose-950/20 rounded-2xl border border-rose-100 dark:border-rose-900/50 shadow-inner">
-                            <p className="text-sm font-bold text-rose-700 dark:text-rose-400 leading-relaxed uppercase tracking-tight">{errorMessage}</p>
+                            <p className="text-sm font-bold text-rose-700 dark:text-rose-400 font-medium leading-relaxed uppercase tracking-tight">{errorMessage}</p>
                         </div>
                         <div className="space-y-3">
                             <button onClick={() => navigate('/')} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Return to Login</button>
@@ -206,7 +179,7 @@ const InvitePage: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                     </div>
                 )}
             </div>
-            <p className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4.1</p>
+            <p className="absolute bottom-8 left-1/2 -translate-x-1/2 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4.3</p>
         </div>
     );
 };

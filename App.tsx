@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useEffect, useMemo, useLayoutEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
@@ -71,24 +72,6 @@ const mapProductFromDb = (p: any): Product => ({
     variants: p.variants || [],
 });
 
-const mapProductToDb = (p: Product, businessId: string) => ({
-    sku: p.sku,
-    name: p.name,
-    description: p.description,
-    category: p.category,
-    price: p.price,
-    cost_price: p.costPrice,
-    stock: p.stock,
-    image_url: p.imageUrl,
-    commission_percentage: p.commissionPercentage,
-    tiered_pricing: p.tieredPricing,
-    stock_history: p.stockHistory,
-    product_type: p.productType,
-    variant_options: p.variantOptions,
-    variants: p.variants,
-    business_id: businessId
-});
-
 const ScrollToTop = () => {
     const { pathname } = useLocation();
     useLayoutEffect(() => {
@@ -121,10 +104,10 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             <NotificationCenter notifications={notifications} onMarkAsRead={onMarkNotifRead} onMarkAllAsRead={onMarkAllNotifsRead} onClear={() => {}} />
             <div className="h-8 w-px bg-slate-100 dark:bg-gray-800 mx-2"></div>
             <Link to="/profile" className="flex items-center gap-3 pl-2 group">
-                <img src={currentUser?.avatarUrl} className="w-9 h-9 rounded-xl object-cover border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all" />
+                <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${currentUser?.name || 'User'}`} className="w-9 h-9 rounded-xl object-cover border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all" />
                 <div className="hidden md:block text-left">
-                    <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-tight">{currentUser?.name?.split(' ')[0]}</p>
-                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{currentUser?.role}</p>
+                    <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-tight">{currentUser?.name?.split(' ')[0] || 'Unit'}</p>
+                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{currentUser?.role || 'Guest'}</p>
                 </div>
             </Link>
         </div>
@@ -175,15 +158,22 @@ const App = () => {
             if (!session?.user) { setCurrentUser(null); setMembershipsCount(0); setIsAuthLoading(false); return; }
             try {
                 await supabase.wait();
-                const { data: mships } = await supabase.from('memberships').select('business_id, role').eq('user_id', session.user.id);
+                const { data: mships } = await supabase.from('memberships').select('business_id, role, initial_investment').eq('user_id', session.user.id);
                 const count = mships?.length || 0;
                 setMembershipsCount(count);
+                
+                const activeMship = mships?.find(m => m.business_id === activeBusinessId) || mships?.[0];
+
                 setCurrentUser({ 
                     id: session.user.id, email: session.user.email || '', 
                     name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
                     avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-                    role: mships?.[0]?.role || 'Staff', status: 'Active', type: 'commission'
+                    role: activeMship?.role || 'Staff',
+                    initialInvestment: activeMship?.initial_investment || 0,
+                    status: 'Active', 
+                    type: 'commission'
                 });
+
                 if (count > 0 && !activeBusinessId) {
                     const firstId = mships[0].business_id;
                     setActiveBusinessId(firstId);
@@ -210,7 +200,7 @@ const App = () => {
         };
         boot();
         return () => { if (authListener?.subscription) authListener.subscription.unsubscribe(); };
-    }, []);
+    }, [activeBusinessId]);
 
     useEffect(() => {
         if (!activeBusinessId || !authUserId) return;
@@ -225,6 +215,44 @@ const App = () => {
         };
         fetch();
     }, [activeBusinessId, authUserId]);
+
+    const handleUpdateCurrentUserProfile = async (profileData: any) => {
+        if (!currentUser) return; 
+        try {
+            await supabase.wait();
+            
+            // 1. Update Auth Metadata (Immediate change for Header/Avatar)
+            const { error: authError } = await supabase.auth.updateUser({
+                data: { 
+                    full_name: profileData.name, 
+                    avatar_url: profileData.avatarUrl 
+                }
+            });
+            if (authError) throw authError;
+
+            // 2. Update Membership Table (Investment sync)
+            if (activeBusinessId && profileData.initialInvestment !== undefined) {
+                const { error: mshipError } = await supabase
+                    .from('memberships')
+                    .update({ initial_investment: parseFloat(profileData.initialInvestment) || 0 })
+                    .eq('user_id', currentUser.id)
+                    .eq('business_id', activeBusinessId);
+                if (mshipError) throw mshipError;
+            }
+
+            // 3. ATOMIC UI REFRESH (No refresh needed)
+            setCurrentUser(prev => prev ? ({
+                ...prev,
+                name: profileData.name || prev.name,
+                avatarUrl: profileData.avatarUrl || prev.avatarUrl,
+                initialInvestment: profileData.initialInvestment !== undefined ? parseFloat(profileData.initialInvestment) : prev.initialInvestment
+            }) : null);
+
+        } catch (err) {
+            console.error("Digital Sync Protocol Failure:", err);
+            alert("Digital Sync Error: Profile could not be synchronized.");
+        }
+    };
 
     const t = (k) => translations[language]?.[k] || k;
 
@@ -259,8 +287,11 @@ const App = () => {
                                 <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
                                 <Route path="counter" element={<Counter cart={cart} customers={[]} users={[]} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={[]} />} />
                                 <Route path="receipts" element={<Receipts sales={sales} customers={[]} users={[]} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={() => {}} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
-                                <Route path="profile" element={<MyProfile currentUser={currentUser} users={[]} sales={sales} expenses={expenses} customers={[]} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={() => {}} />} />
-                                <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={[]} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} />} />
+                                <Route path="users" element={<Users users={[]} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
+                                <Route path="investors" element={<InvestorPage users={[]} netProfit={0} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} />} />
+                                <Route path="profile" element={<MyProfile currentUser={currentUser} users={[]} sales={sales} expenses={expenses} customers={[]} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} />} />
+                                <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={[]} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} />} />
+                                <Route path="invite" element={<InvitePage currentUser={currentUser} />} />
                                 <Route path="*" element={<Navigate to="dashboard" replace />} />
                             </Routes>
                         </main>

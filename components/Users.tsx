@@ -15,30 +15,46 @@ const Users: React.FC<any> = ({ users = [], activeBusinessId, currentUser }) => 
     const [inviteLinkToShow, setInviteLinkToShow] = useState<string | null>(null);
 
     const handleSaveUser = async (userData: any) => {
-        // 1. Generate unique token
-        const token = crypto.randomUUID();
-        
-        // 2. Persist invitation in Supabase
-        const { error } = await supabase.from('invitations').insert({
-            business_id: activeBusinessId,
-            invited_email: userData.email.toLowerCase(),
-            role: userData.role,
-            token: token,
-            status: 'pending',
-            created_by: currentUser.id,
-            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-        });
-
-        if (error) {
-            alert("Protocol Error: Could not issue invitation.");
+        // FIX: Safety guard
+        if (!currentUser?.id || !activeBusinessId) {
+            alert("Authorization Error: Identity or Node ID missing.");
             return;
         }
 
-        // 3. Show Link to User
-        const baseUrl = window.location.origin + window.location.pathname;
-        const fullLink = `${baseUrl}#/invite?token=${token}`;
-        setInviteLinkToShow(fullLink);
-        setIsUserModalOpen(false);
+        try {
+            await supabase.wait();
+            
+            // 1. Generate unique token
+            const token = crypto.randomUUID();
+            
+            // 2. Persist invitation in Supabase
+            const { error } = await supabase.from('invitations').insert({
+                business_id: activeBusinessId,
+                invited_email: userData.email.toLowerCase(),
+                role: userData.role,
+                token: token,
+                status: 'pending',
+                created_by: currentUser.id,
+                expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                metadata: {
+                    initial_investment: userData.initialInvestment || 0
+                }
+            });
+
+            if (error) {
+                console.error("Invite Creation Failure:", error);
+                alert(`Protocol Error: ${error.message}`);
+                return;
+            }
+
+            // 3. Show Link to User
+            const baseUrl = window.location.origin + window.location.pathname;
+            const fullLink = `${baseUrl}#/invite?token=${token}`;
+            setInviteLinkToShow(fullLink);
+            setIsUserModalOpen(false);
+        } catch (err) {
+            alert("Digital Sync Error: Could not issue invitation protocol.");
+        }
     };
 
     return (
@@ -60,11 +76,22 @@ const Users: React.FC<any> = ({ users = [], activeBusinessId, currentUser }) => 
                         <tbody>
                             {users.map(u => (
                                 <tr key={u.id}>
-                                    <td className="font-bold">{u.name} ({u.role})</td>
-                                    <td><span className="status-badge status-approved">Live</span></td>
-                                    <td className="text-right"><button className="text-[9px] font-black text-slate-400 uppercase">Manage</button></td>
+                                    <td className="font-bold text-slate-900 dark:text-white uppercase tracking-tight text-xs">
+                                        <div className="flex items-center gap-3">
+                                            <img src={u.avatarUrl || `https://ui-avatars.com/api/?name=${u.name}`} className="w-8 h-8 rounded-xl object-cover border border-slate-100 dark:border-gray-800" />
+                                            <div>
+                                                <span>{u.name}</span>
+                                                <span className="block text-[8px] text-slate-400 font-black tracking-widest">{u.role}</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span className="status-badge status-approved !text-[8px]">Live Node</span></td>
+                                    <td className="text-right"><button className="text-[9px] font-black text-slate-400 uppercase hover:text-primary transition-colors">Manage</button></td>
                                 </tr>
                             ))}
+                            {users.length === 0 && (
+                                <tr><td colSpan={3} className="py-20 text-center text-[10px] font-black uppercase tracking-[0.4em] text-slate-300">Personnel Grid Empty</td></tr>
+                            )}
                         </tbody>
                     </table>
                 </div>
@@ -74,16 +101,16 @@ const Users: React.FC<any> = ({ users = [], activeBusinessId, currentUser }) => 
 
             <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Invitation Issued" description="Share this secure link with the invitee.">
                 <div className="space-y-6">
-                    <div className="p-6 bg-slate-50 dark:bg-gray-800 rounded-2xl border border-slate-100 break-all font-mono text-[10px] text-primary select-all">
+                    <div className="p-6 bg-slate-50 dark:bg-gray-800 rounded-2xl border border-slate-100 dark:border-gray-700 break-all font-mono text-[10px] text-primary select-all shadow-inner">
                         {inviteLinkToShow}
                     </div>
                     <button 
-                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Copied to clipboard.'); }} 
-                        className="w-full py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest"
+                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Protocol link copied to clipboard.'); }} 
+                        className="w-full py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl"
                     >
                         Copy Secure Link
                     </button>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase text-center">This token expires in 7 days.</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase text-center tracking-widest">This token expires in 7 days.</p>
                 </div>
             </ModalShell>
         </div>

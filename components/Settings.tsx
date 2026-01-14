@@ -48,6 +48,7 @@ interface SettingsProps {
     theme: 'light' | 'dark';
     setTheme: (theme: 'light' | 'dark') => void;
     onResetBusiness: () => void;
+    onUpdateCurrentUserProfile: (profileData: any) => void;
 }
 
 const ThemeIcon = () => (
@@ -70,7 +71,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
         ownerSettings, onUpdateOwnerSettings,
         printerSettings, onUpdatePrinterSettings,
         permissions, onUpdatePermissions,
-        theme, setTheme, onResetBusiness
+        theme, setTheme, onResetBusiness, onUpdateCurrentUserProfile
     } = props;
 
     const [activeTab, setActiveTab] = useState<'app' | 'business' | 'receipts' | 'hardware' | 'security' | 'owner'>('app');
@@ -152,7 +153,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
                             <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 shadow-xl border border-slate-50 dark:border-gray-800">
                                 <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white mb-8">Interface Protocol</h3>
                                 <div className="space-y-8">
-                                    <div className="flex items-center justify-between p-6 bg-slate-50 dark:bg-gray-950 rounded-[2rem] border border-slate-100 dark:border-gray-800 shadow-inner">
+                                    <div className="flex items-center justify-between p-6 bg-slate-50 dark:bg-gray-950 rounded-[2.5rem] border border-slate-100 dark:border-gray-800 shadow-inner">
                                         <div className="flex items-center gap-4">
                                             <div className="p-3 bg-white dark:bg-gray-900 rounded-2xl text-slate-400 shadow-sm"><ThemeIcon /></div>
                                             <span className="text-xs font-black uppercase tracking-widest text-slate-900 dark:text-white">Dark Mode</span>
@@ -202,7 +203,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
                             onResetBusiness={onResetBusiness} 
                             t={t} 
                             currentUser={currentUser} 
-                            onUpdateCurrentUserProfile={() => {}}
+                            onUpdateCurrentUserProfile={onUpdateCurrentUserProfile}
                             users={users}
                         />
                     )}

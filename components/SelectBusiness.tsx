@@ -4,7 +4,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import type { User } from '../types';
-import { BuildingIcon, LogoutIcon, PlusIcon, WarningIcon } from '../constants';
+import { BuildingIcon, LogoutIcon, PlusIcon, WarningIcon, CrownIcon, StaffIcon } from '../constants';
 
 interface SelectBusinessProps {
     currentUser: User | null;
@@ -21,7 +21,6 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     const [manualToken, setManualToken] = useState('');
 
     useEffect(() => {
-        // CRITICAL GUARD: Prevent accessing 'id' of null
         if (!currentUser || !currentUser.id) return;
 
         const fetchMemberships = async () => {
@@ -55,7 +54,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
             }
         };
         fetchMemberships();
-    }, [currentUser?.id]); // Only re-run when ID is stable
+    }, [currentUser?.id]);
 
     const handleManualTokenSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -65,6 +64,12 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     };
 
     if (isLoading || !currentUser) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
+
+    const getRoleStyles = (role: string) => {
+        if (role === 'Owner' || role === 'Super Admin') return 'bg-primary text-white border-primary shadow-lg shadow-primary/20';
+        if (role === 'Manager') return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+        return 'bg-slate-50 text-slate-500 border-slate-100';
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex flex-col items-center justify-center p-6 font-sans">
@@ -84,9 +89,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 <WarningIcon className="w-4 h-4" />
                                 Protocol Sync Failure
                             </div>
-                            <pre className="text-[9px] font-mono text-rose-500 overflow-x-auto whitespace-pre-wrap">
-                                {error}
-                            </pre>
+                            <pre className="text-[9px] font-mono text-rose-500 overflow-x-auto whitespace-pre-wrap">{error}</pre>
                             <button onClick={() => window.location.reload()} className="mt-4 w-full py-2 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase">Retry Node Fetch</button>
                         </div>
                     )}
@@ -97,17 +100,25 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 <button
                                     key={m.business_id}
                                     onClick={() => onSelect(m.business_id)}
-                                    className="w-full flex items-center gap-5 p-6 bg-white dark:bg-gray-900 border border-slate-100 dark:border-gray-800 rounded-[2rem] hover:border-primary hover:shadow-xl transition-all group text-left shadow-sm active:scale-[0.98]"
+                                    className="w-full flex items-center gap-5 p-6 bg-white dark:bg-gray-900 border border-slate-100 dark:border-gray-800 rounded-[2.5rem] hover:border-primary hover:shadow-2xl transition-all group text-left shadow-sm active:scale-[0.98]"
                                 >
-                                    <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-gray-800 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                                        <BuildingIcon className="w-6 h-6 text-slate-400 group-hover:text-primary" />
+                                    <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-gray-800 flex items-center justify-center group-hover:bg-primary transition-colors">
+                                        {(m.role === 'Owner' || m.role === 'Super Admin') ? (
+                                            <CrownIcon className="w-6 h-6 text-primary group-hover:text-white" />
+                                        ) : (
+                                            <StaffIcon className="w-6 h-6 text-slate-400 group-hover:text-white" />
+                                        )}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{m.businesses?.name}</p>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Role: {m.role}</p>
+                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-xl truncate leading-tight">{m.businesses?.name}</p>
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border transition-all ${getRoleStyles(m.role)}`}>
+                                                Protocol: {m.role}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" strokeWidth={3} /></svg>
+                                    <div className="text-primary opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
+                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" strokeWidth={4} /></svg>
                                     </div>
                                 </button>
                             ))}
@@ -119,13 +130,13 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                         </div>
                     )}
 
-                    {myMemberships.length > 0 && isOwnerAdmin && (
+                    {myMemberships.length > 0 && (
                         <button 
                             onClick={() => navigate('/onboarding')}
-                            className="w-full flex items-center justify-center gap-3 p-5 bg-primary/5 text-primary border-2 border-dashed border-primary/20 rounded-[2rem] hover:bg-primary/10 transition-all group"
+                            className="w-full flex items-center justify-center gap-3 p-6 bg-primary/5 text-primary border-2 border-dashed border-primary/20 rounded-[2.5rem] hover:bg-primary hover:text-white hover:border-primary transition-all group"
                         >
-                            <PlusIcon className="w-5 h-5" />
-                            <span className="text-[10px] font-black uppercase tracking-widest">Enroll Additional Node</span>
+                            <PlusIcon className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+                            <span className="text-[11px] font-black uppercase tracking-widest">Enroll Additional Node</span>
                         </button>
                     )}
 

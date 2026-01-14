@@ -104,10 +104,15 @@ const Header = ({ currentUser, businessProfile, onMenuClick, notifications, cart
             <NotificationCenter notifications={notifications} onMarkAsRead={onMarkNotifRead} onMarkAllAsRead={onMarkAllNotifsRead} onClear={() => {}} />
             <div className="h-8 w-px bg-slate-100 dark:bg-gray-800 mx-2"></div>
             <Link to="/profile" className="flex items-center gap-3 pl-2 group">
-                <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${currentUser?.name || 'User'}`} className="w-9 h-9 rounded-xl object-cover border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all" />
+                <div className="relative">
+                    <img src={currentUser?.avatarUrl || `https://ui-avatars.com/api/?name=${currentUser?.name || 'User'}`} className="w-9 h-9 rounded-xl object-cover border-2 border-white dark:border-gray-800 group-hover:border-primary transition-all" />
+                    {(currentUser?.role === 'Owner' || currentUser?.role === 'Super Admin') && (
+                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-primary rounded-full border-2 border-white dark:border-gray-900 shadow-sm"></div>
+                    )}
+                </div>
                 <div className="hidden md:block text-left">
                     <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-tight">{currentUser?.name?.split(' ')[0] || 'Unit'}</p>
-                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{currentUser?.role || 'Guest'}</p>
+                    <p className="text-[8px] font-bold text-primary uppercase tracking-widest">{currentUser?.role || 'Guest'}</p>
                 </div>
             </Link>
         </div>
@@ -164,23 +169,31 @@ const App = () => {
                 
                 const activeMship = mships?.find(m => m.business_id === activeBusinessId) || mships?.[0];
 
-                setCurrentUser({ 
-                    id: session.user.id, email: session.user.email || '', 
-                    name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
-                    avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-                    role: activeMship?.role || 'Staff',
-                    initialInvestment: activeMship?.initial_investment || 0,
-                    status: 'Active', 
-                    type: 'commission'
-                });
-
-                if (count > 0 && !activeBusinessId) {
+                if (activeMship) {
+                    setCurrentUser({ 
+                        id: session.user.id, email: session.user.email || '', 
+                        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
+                        avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
+                        role: activeMship.role, // STRICT ROLE MAPPING
+                        initialInvestment: activeMship.initial_investment || 0,
+                        status: 'Active', 
+                        type: 'commission'
+                    });
+                } else if (count > 0) {
+                    // Force selecting the first business if no active one is selected but memberships exist
                     const firstId = mships[0].business_id;
                     setActiveBusinessId(firstId);
                     localStorage.setItem('fintab_active_business_id', firstId);
+                } else {
+                    // No memberships at all - likely needs onboarding
+                    setCurrentUser(null);
                 }
-            } catch (err) { console.error(err); setMembershipsCount(0); }
-            finally { setIsAuthLoading(false); }
+            } catch (err) { 
+                console.error("Identity Sync Failure:", err); 
+                setMembershipsCount(0); 
+            } finally { 
+                setIsAuthLoading(false); 
+            }
         };
 
         const boot = async () => {
@@ -220,17 +233,11 @@ const App = () => {
         if (!currentUser) return; 
         try {
             await supabase.wait();
-            
-            // 1. Update Auth Metadata (Immediate change for Header/Avatar)
             const { error: authError } = await supabase.auth.updateUser({
-                data: { 
-                    full_name: profileData.name, 
-                    avatar_url: profileData.avatarUrl 
-                }
+                data: { full_name: profileData.name, avatar_url: profileData.avatarUrl }
             });
             if (authError) throw authError;
 
-            // 2. Update Membership Table (Investment sync)
             if (activeBusinessId && profileData.initialInvestment !== undefined) {
                 const { error: mshipError } = await supabase
                     .from('memberships')
@@ -240,14 +247,12 @@ const App = () => {
                 if (mshipError) throw mshipError;
             }
 
-            // 3. ATOMIC UI REFRESH (No refresh needed)
             setCurrentUser(prev => prev ? ({
                 ...prev,
                 name: profileData.name || prev.name,
                 avatarUrl: profileData.avatarUrl || prev.avatarUrl,
                 initialInvestment: profileData.initialInvestment !== undefined ? parseFloat(profileData.initialInvestment) : prev.initialInvestment
             }) : null);
-
         } catch (err) {
             console.error("Digital Sync Protocol Failure:", err);
             alert("Digital Sync Error: Profile could not be synchronized.");
@@ -268,7 +273,7 @@ const App = () => {
         </div>
     );
 
-    if (!activeBusinessId && location.pathname !== '/invite') return <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} isOwnerAdmin={currentUser?.role === 'Owner'} />;
+    if (!activeBusinessId && location.pathname !== '/invite' && location.pathname !== '/onboarding') return <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} isOwnerAdmin={currentUser?.role === 'Owner'} />;
 
     return (
         <div className={`h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950 overflow-hidden`}>
@@ -283,6 +288,7 @@ const App = () => {
                         <main className="p-4 md:p-10 min-h-full max-w-[1600px] mx-auto">
                             <Routes>
                                 <Route path="dashboard" element={<Dashboard products={products} customers={[]} users={[]} sales={sales} expenses={expenses} deposits={[]} expenseRequests={[]} anomalyAlerts={[]} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} />} />
+                                <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
                                 <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                 <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
                                 <Route path="counter" element={<Counter cart={cart} customers={[]} users={[]} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={[]} />} />

@@ -10,31 +10,6 @@ interface NotificationCenterProps {
     notifications: AppNotification[];
     onMarkAsRead: (id: string) => void;
     onMarkAllAsRead: () => void;
-    onClear: (id: string) => void;
-}
-
-interface LocalErrorBoundaryProps {
-    children?: React.ReactNode;
-}
-
-interface LocalErrorBoundaryState {
-    hasError: boolean;
-}
-
-class LocalErrorBoundary extends React.Component<LocalErrorBoundaryProps, LocalErrorBoundaryState> {
-    constructor(props: LocalErrorBoundaryProps) { 
-        super(props); 
-        this.state = { hasError: false }; 
-    }
-    public static getDerivedStateFromError() { return { hasError: true }; }
-    public render() {
-        if (this.state.hasError) return (
-            <div className="p-8 text-center bg-rose-50/30 rounded-[2rem] border border-dashed border-rose-100 m-4">
-                <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest leading-relaxed">Alert System Interrupted. Identity verified but component state unreachable.</p>
-            </div>
-        );
-        return this.props.children;
-    }
 }
 
 const TypeIcon: React.FC<{ type: AppNotification['type'] }> = ({ type }) => {
@@ -67,7 +42,7 @@ const TypeIcon: React.FC<{ type: AppNotification['type'] }> = ({ type }) => {
     }
 };
 
-const NotificationCenter: React.FC<NotificationCenterProps> = ({ notifications = [], onMarkAsRead, onMarkAllAsRead, onClear }) => {
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ notifications = [], onMarkAsRead, onMarkAllAsRead }) => {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
@@ -126,43 +101,41 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ notifications =
                     </header>
 
                     <main className="max-h-[480px] overflow-y-auto custom-scrollbar">
-                        <LocalErrorBoundary>
-                            {Array.isArray(notifications) && notifications.length > 0 ? (
-                                <div className="divide-y divide-slate-50 dark:divide-gray-800">
-                                    {notifications.map(notification => {
-                                        if (!notification) return null;
-                                        return (
-                                            <div 
-                                                key={notification.id}
-                                                onClick={() => handleNotificationClick(notification)}
-                                                className={`p-6 flex gap-4 cursor-pointer transition-all relative group ${notification.isRead ? 'opacity-60' : 'bg-primary/[0.02]'}`}
-                                            >
-                                                {!notification.isRead && <div className="absolute left-0 top-6 bottom-6 w-1 bg-primary rounded-r-full shadow-sm"></div>}
-                                                <TypeIcon type={notification.type} />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex justify-between items-start gap-2">
-                                                        <p className={`text-xs font-black uppercase tracking-tighter truncate ${notification.isRead ? 'text-slate-500' : 'text-slate-900 dark:text-white'}`}>
-                                                            {notification.title}
-                                                        </p>
-                                                        <span className="text-[8px] font-bold text-slate-300 dark:text-slate-600 uppercase whitespace-nowrap pt-0.5 tabular-nums">
-                                                            {notification.timestamp ? new Date(notification.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed font-medium">{notification.message}</p>
+                        {Array.isArray(notifications) && notifications.length > 0 ? (
+                            <div className="divide-y divide-slate-50 dark:divide-gray-800">
+                                {notifications.map(notification => {
+                                    if (!notification) return null;
+                                    return (
+                                        <div 
+                                            key={notification.id}
+                                            onClick={() => handleNotificationClick(notification)}
+                                            className={`p-6 flex gap-4 cursor-pointer transition-all relative group ${notification.isRead ? 'opacity-60' : 'bg-primary/[0.02]'}`}
+                                        >
+                                            {!notification.isRead && <div className="absolute left-0 top-6 bottom-6 w-1 bg-primary rounded-r-full shadow-sm"></div>}
+                                            <TypeIcon type={notification.type} />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start gap-2">
+                                                    <p className={`text-xs font-black uppercase tracking-tighter truncate ${notification.isRead ? 'text-slate-500' : 'text-slate-900 dark:text-white'}`}>
+                                                        {notification.title}
+                                                    </p>
+                                                    <span className="text-[8px] font-bold text-slate-300 dark:text-slate-600 uppercase whitespace-nowrap pt-0.5 tabular-nums">
+                                                        {notification.timestamp ? new Date(notification.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                                    </span>
                                                 </div>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed font-medium">{notification.message}</p>
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <EmptyState 
-                                    icon={<BellIcon />} 
-                                    title="No alerts right now." 
-                                    description="Operational protocols are within safe thresholds."
-                                    compact
-                                />
-                            )}
-                        </LocalErrorBoundary>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <EmptyState 
+                                icon={<BellIcon />} 
+                                title="No alerts right now." 
+                                description="Operational protocols are within safe thresholds."
+                                compact
+                            />
+                        )}
                     </main>
 
                     <footer className="p-6 border-t dark:border-gray-800 bg-slate-50/50 dark:bg-gray-800/50">

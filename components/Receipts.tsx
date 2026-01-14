@@ -1,10 +1,11 @@
+
 // @ts-nocheck
 import React, { useState, useMemo } from 'react';
 import type { Sale, ReceiptSettingsData, User, Customer, PrinterSettingsData } from '../types';
 import ReceiptModal from './ReceiptModal';
 import EmptyState from './EmptyState';
 import { formatCurrency } from '../lib/utils';
-import { ReceiptsIcon, CloseIcon } from '../constants';
+import { ReceiptsIcon, CloseIcon, ShieldCheckIcon } from '../constants';
 import { useNavigate } from 'react-router-dom';
 
 interface ReceiptsProps {
@@ -17,9 +18,11 @@ interface ReceiptsProps {
     currentUser: User;
     isTrialExpired: boolean;
     printerSettings: PrinterSettingsData;
+    onApproveBankSale?: (id: string) => void;
+    onRejectBankSale?: (id: string, reason: string) => void;
 }
 
-const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receiptSettings, onDeleteSale, currentUser, isTrialExpired, printerSettings }) => {
+const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receiptSettings, onDeleteSale, currentUser, isTrialExpired, printerSettings, onApproveBankSale, onRejectBankSale }) => {
     const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -27,6 +30,8 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
     const navigate = useNavigate();
+
+    const isVerifier = currentUser.role === 'Owner' || currentUser.role === 'BankVerifier' || currentUser.role === 'Super Admin';
 
     const applyPreset = (preset: string) => {
         setActivePreset(preset);
@@ -67,6 +72,11 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
             {isApproved ? 'Verified' : isPending ? 'In Review' : 'Rejected'}
         </span>;
     }
+
+    const handleReject = (id: string) => {
+        const reason = prompt("Enter rejection reason:");
+        if (reason && onRejectBankSale) onRejectBankSale(id, reason);
+    };
 
     return (
         <div className="max-w-7xl mx-auto space-y-10 font-sans pb-24 px-4 sm:px-6 lg:px-10">
@@ -115,6 +125,7 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                                             <th className="px-8 py-6">Client Identity</th>
                                             <th className="px-8 py-6 text-right">Value</th>
                                             <th className="px-8 py-6 text-center">Protocol Status</th>
+                                            <th className="px-8 py-6 text-center">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y dark:divide-gray-800">
@@ -126,7 +137,23 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                                                     <td className="px-8 py-6 text-slate-500 dark:text-slate-400 tabular-nums text-xs font-medium">{new Date(sale.date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
                                                     <td className="px-8 py-6 font-bold text-slate-800 dark:text-slate-200 uppercase text-xs">{customer?.name || 'Guest Identity'}</td>
                                                     <td className="px-8 py-6 text-right font-black tabular-nums text-slate-900 dark:text-white">{formatCurrency(sale.total, receiptSettings.currencySymbol)}</td>
-                                                    <td className="px-8 py-6 text-center">{getStatusBadge(sale.status)}</td>
+                                                    <td className="px-8 py-6 text-center">
+                                                        {getStatusBadge(sale.status)}
+                                                        {sale.status === 'rejected_bank_not_verified' && sale.verification_note && (
+                                                            <p className="text-[7px] text-rose-500 font-bold uppercase mt-1 italic">Note: {sale.verification_note}</p>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-8 py-6 text-center">
+                                                        {sale.status === 'pending_bank_verification' && isVerifier && (
+                                                            <div className="flex gap-2 justify-center">
+                                                                <button onClick={() => onApproveBankSale && onApproveBankSale(sale.id)} className="px-4 py-1.5 bg-emerald-500 text-white rounded-lg text-[8px] font-black uppercase tracking-widest shadow-md">Verify</button>
+                                                                <button onClick={() => handleReject(sale.id)} className="px-4 py-1.5 bg-rose-500 text-white rounded-lg text-[8px] font-black uppercase tracking-widest shadow-md">Reject</button>
+                                                            </div>
+                                                        )}
+                                                        {sale.payment_method === 'Bank Receipt' && sale.bank_receipt_number && (
+                                                            <p className="text-[8px] text-slate-400 font-bold uppercase mt-1">Ref: {sale.bank_receipt_number}</p>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             )
                                         })}
@@ -146,6 +173,13 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                                         </div>
                                         <p className="text-sm font-bold uppercase tracking-tight text-slate-900 dark:text-white truncate">{(customers.find(c => c.id === sale.customerId))?.name || 'Guest Identity'}</p>
                                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">{new Date(sale.date).toLocaleDateString()} &bull; {sale.items.length} Units</p>
+                                        
+                                        {sale.status === 'pending_bank_verification' && isVerifier && (
+                                            <div className="grid grid-cols-2 gap-3 mt-6 pt-4 border-t dark:border-gray-700">
+                                                <button onClick={() => onApproveBankSale && onApproveBankSale(sale.id)} className="w-full py-3 bg-emerald-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Verify Receipt</button>
+                                                <button onClick={() => handleReject(sale.id)} className="w-full py-3 bg-rose-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Reject</button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

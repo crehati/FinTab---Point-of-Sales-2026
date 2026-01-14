@@ -53,23 +53,27 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
         setIsProcessing(true);
         try {
             const client = await supabase.wait();
+            // EXPLICIT MAPPING: Ensuring keys match the DB schema exactly
             const { error } = await client.from('bank_accounts').insert({
                 bank_name: newAccount.bankName,
                 account_name: newAccount.accountName,
-                account_number: newAccount.accountNumber,
+                account_number: newAccount.accountNumber || '',
                 balance: 0,
                 status: 'Active',
                 business_id: activeBusinessId
             });
 
-            if (error) throw error;
+            if (error) {
+                console.error("DB Insert Error:", error);
+                throw error;
+            }
             
             setIsAddAccountModalOpen(false);
             setNewAccount({ bankName: '', accountName: '', accountNumber: '' });
             alert("Bank node enrolled successfully.");
             window.location.reload(); 
         } catch (err) {
-            alert("Node Creation Error: " + err.message);
+            alert("Node Creation Error: " + (err.message || "Could not enroll bank in cloud registry. Ensure you have run the latest SQL update in Supabase."));
         } finally {
             setIsProcessing(false);
         }

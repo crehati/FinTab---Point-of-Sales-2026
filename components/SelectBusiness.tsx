@@ -21,40 +21,40 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     const [manualToken, setManualToken] = useState('');
 
     useEffect(() => {
-        if (!currentUser || !currentUser.id) return;
-
         const fetchMemberships = async () => {
             setIsLoading(true);
             setError(null);
             
             try {
-                await supabase.wait();
-                const { data, error: fetchError } = await supabase
+                const client = await supabase.wait();
+                const { data: { session } } = await client.auth.getSession();
+                if (!session?.user) {
+                    setIsLoading(false);
+                    return;
+                }
+
+                // Simplified query to avoid 400 error triggered by ambiguous join syntaxes
+                const { data, error: fetchError } = await client
                     .from('memberships')
-                    .select(`
-                        role, 
-                        business_id, 
-                        businesses:business_id (
-                            name, 
-                            profile
-                        )
-                    `)
-                    .eq('user_id', currentUser.id);
+                    .select('*, businesses(*)')
+                    .eq('user_id', session.user.id);
                 
                 if (fetchError) {
-                    console.error("[Terminal Hub] Membership fetch failed:", fetchError);
-                    setError(fetchError.message);
+                    console.error("[Terminal Hub] Node sync failed:", fetchError.message);
+                    setError("Authorization Node Failure: " + fetchError.message);
                 } else if (data) {
                     setMyMemberships(data);
                 }
             } catch (err) {
-                setError("Protocol Error: Cloud node unreachable.");
+                const msg = err.message || JSON.stringify(err);
+                console.error("[Terminal Hub] Protocol Sync Failure:", msg);
+                setError("Protocol Error: " + msg);
             } finally {
                 setIsLoading(false);
             }
         };
         fetchMemberships();
-    }, [currentUser?.id]);
+    }, []);
 
     const handleManualTokenSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -63,7 +63,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
         }
     };
 
-    if (isLoading || !currentUser) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
 
     const getRoleStyles = (role: string) => {
         if (role === 'Owner' || role === 'Super Admin') return 'bg-primary text-white border-primary shadow-lg shadow-primary/20';
@@ -78,7 +78,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     <div className="w-16 h-16 bg-white dark:bg-gray-900 rounded-3xl shadow-xl border border-slate-100 dark:border-gray-800 flex items-center justify-center mx-auto">
                         <BuildingIcon className="w-8 h-8 text-primary" />
                     </div>
-                    <h1 className="text-3xl font-bold tracking-tighter text-slate-900 dark:text-white uppercase">Terminal Hub</h1>
+                    <h1 className="text-3xl font-black tracking-tighter text-slate-900 dark:text-white uppercase">Terminal Hub</h1>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em]">Operational Nodes</p>
                 </header>
 
@@ -110,49 +110,39 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                         )}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-xl truncate leading-tight">{m.businesses?.name}</p>
+                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-xl truncate leading-tight">{m.businesses?.name || 'Unnamed node'}</p>
                                         <div className="flex items-center gap-2 mt-2">
                                             <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border transition-all ${getRoleStyles(m.role)}`}>
                                                 Protocol: {m.role}
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="text-primary opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
-                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" strokeWidth={4} /></svg>
-                                    </div>
                                 </button>
                             ))}
                         </div>
-                    ) : !error && (
+                    ) : !error && !isLoading && (
                         <div className="bg-white dark:bg-gray-900 p-12 rounded-[3rem] border border-dashed border-slate-200 dark:border-gray-800 text-center space-y-6">
                             <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">No Authorized Nodes Found.<br/>You must enroll a new business to begin.</p>
                             <button onClick={() => navigate('/onboarding')} className="px-10 py-4 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Enroll New Business</button>
                         </div>
                     )}
 
-                    {myMemberships.length > 0 && (
-                        <button 
-                            onClick={() => navigate('/onboarding')}
-                            className="w-full flex items-center justify-center gap-3 p-6 bg-primary/5 text-primary border-2 border-dashed border-primary/20 rounded-[2.5rem] hover:bg-primary hover:text-white hover:border-primary transition-all group"
-                        >
-                            <PlusIcon className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-                            <span className="text-[11px] font-black uppercase tracking-widest">Enroll Additional Node</span>
-                        </button>
-                    )}
+                    {!isLoading && (
+                        <>
+                            <button onClick={() => navigate('/onboarding')} className="w-full flex items-center justify-center gap-3 p-6 bg-primary/5 text-primary border-2 border-dashed border-primary/20 rounded-[2.5rem] hover:bg-primary hover:text-white hover:border-primary transition-all group">
+                                <PlusIcon className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+                                <span className="text-[11px] font-black uppercase tracking-widest">Enroll Additional Node</span>
+                            </button>
 
-                    <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">
-                        <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-6 px-1">Accept Invitation</h3>
-                        <form onSubmit={handleManualTokenSubmit} className="space-y-4">
-                            <input 
-                                type="text" 
-                                value={manualToken}
-                                onChange={e => setManualToken(e.target.value)}
-                                placeholder="Enter Protocol Token"
-                                className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-bold text-center uppercase tracking-widest focus:ring-4 focus:ring-primary/10 outline-none transition-all"
-                            />
-                            <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-black transition-all">Verify Token</button>
-                        </form>
-                    </div>
+                            <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 mb-6 px-1">Accept Invitation</h3>
+                                <form onSubmit={handleManualTokenSubmit} className="space-y-4">
+                                    <input type="text" value={manualToken} onChange={e => setManualToken(e.target.value)} placeholder="Enter Protocol Token" className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-bold text-center uppercase tracking-widest focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                                    <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-black transition-all">Verify Token</button>
+                                </form>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 <div className="flex justify-center pt-6">

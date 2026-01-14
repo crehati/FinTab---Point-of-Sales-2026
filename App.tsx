@@ -44,6 +44,7 @@ import SelectBusiness from './components/SelectBusiness';
 import Transactions from './components/Transactions';
 import InvitePage from './components/InvitePage';
 import NotificationCenter from './components/NotificationCenter';
+import InvestorPage from './components/Investor';
 
 const mapProductFromDb = (p: any): Product => ({
     id: p.id,
@@ -142,7 +143,7 @@ const App = () => {
 
     const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
     const [products, setProducts] = useState<Product[]>([]);
-    const [users, setUsers] = useState<User[]>([]); // LOCAL BUSINESS PERSONNEL
+    const [users, setUsers] = useState<User[]>([]); 
     const [sales, setSales] = useState<Sale[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -150,87 +151,114 @@ const App = () => {
 
     useEffect(() => {
         let authListener = null;
+        
         const syncIdentity = async (session) => {
-            if (!session?.user) { setCurrentUser(null); setIsAuthLoading(false); return; }
+            if (!session?.user) { 
+                setCurrentUser(null); 
+                setIsAuthLoading(false); 
+                return; 
+            }
+
+            // Safety release for the spinner
+            const initGuard = setTimeout(() => setIsAuthLoading(false), 5000);
+
             try {
-                await supabase.wait();
-                // STRICT IDENTITY FETCH: Get ONLY membership for this active business
-                const { data: mships } = await supabase
+                const client = await supabase.wait();
+                if (!client) throw new Error("Supabase node unreachable");
+
+                // SAFE SELECT: Requesting * to avoid 400 if specific columns like initial_investment are missing
+                const { data: mships, error: mErr } = await client
                     .from('memberships')
-                    .select('business_id, role, initial_investment')
+                    .select('*')
                     .eq('user_id', session.user.id);
                 
+                if (mErr) {
+                    throw new Error(`Membership Sync Failure: ${mErr.message}`);
+                }
+
                 const activeMship = mships?.find(m => m.business_id === activeBusinessId) || mships?.[0];
 
                 if (activeMship) {
-                    // Update active business ID if we defaulted to the first membership
                     if (!activeBusinessId || activeBusinessId !== activeMship.business_id) {
                         setActiveBusinessId(activeMship.business_id);
                         localStorage.setItem('fintab_active_business_id', activeMship.business_id);
                     }
 
                     setCurrentUser({ 
-                        id: session.user.id, 
-                        email: session.user.email || '', 
-                        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
-                        avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-                        role: activeMship.role, // ROLE IS STRICTLY CONTEXTUAL
+                        id: session.user.id,
+                        email: session.user.email || '',
+                        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+                        avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`,
+                        role: activeMship.role,
                         initialInvestment: activeMship.initial_investment || 0,
-                        status: 'Active', 
+                        status: 'Active',
                         type: 'commission'
                     });
                 } else {
-                    setCurrentUser(null);
+                    // Logged in but not a member yet? Allow select business view
+                    setCurrentUser({
+                        id: session.user.id,
+                        email: session.user.email || '',
+                        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+                        role: 'Staff',
+                        status: 'Pending Verification'
+                    });
                 }
             } catch (err) { 
-                console.error("Identity Sync Failure:", err); 
-            } finally { 
-                setIsAuthLoading(false); 
+                console.error("Identity Sync Protocol Failure:", err.message || JSON.stringify(err)); 
+            } finally {
+                clearTimeout(initGuard);
+                setIsAuthLoading(false);
             }
         };
 
         const boot = async () => {
-            await supabase.wait();
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) { setAuthUserId(session.user.id); await syncIdentity(session); }
-            else { setAuthUserId(null); setIsAuthLoading(false); }
+            try {
+                const client = await supabase.wait();
+                const { data: { session } } = await client.auth.getSession();
+                if (session) { 
+                    setAuthUserId(session.user.id); 
+                    await syncIdentity(session); 
+                } else { 
+                    setAuthUserId(null); 
+                    setIsAuthLoading(false); 
+                }
 
-            const { data } = supabase.auth.onAuthStateChange((event, session) => {
-                setAuthUserId(session?.user?.id || null);
-                if (event === 'SIGNED_OUT') {
-                    setCurrentUser(null); setActiveBusinessId(null);
-                    localStorage.removeItem('fintab_active_business_id');
-                } else if (session) { syncIdentity(session); }
-            });
-            authListener = data;
+                const { data } = client.auth.onAuthStateChange((event, session) => {
+                    setAuthUserId(session?.user?.id || null);
+                    if (event === 'SIGNED_OUT') {
+                        setCurrentUser(null); 
+                        setActiveBusinessId(null);
+                        localStorage.removeItem('fintab_active_business_id');
+                        setIsAuthLoading(false);
+                    } else if (session) { 
+                        syncIdentity(session); 
+                    }
+                });
+                authListener = data;
+            } catch (e) {
+                console.error("Critical Terminal Boot Failure:", e.message || JSON.stringify(e));
+                setIsAuthLoading(false);
+            }
         };
+
         boot();
         return () => { if (authListener?.subscription) authListener.subscription.unsubscribe(); };
     }, [activeBusinessId]);
 
-    // FETCH BUSINESS SPECIFIC DATA
     useEffect(() => {
         if (!activeBusinessId || !authUserId) return;
         const fetch = async () => {
             try {
-                await supabase.wait();
-                // 1. Fetch Products
-                const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
+                const client = await supabase.wait();
+                const { data: prods } = await client.from('products').select('*').eq('business_id', activeBusinessId);
                 if (prods) setProducts(prods.map(mapProductFromDb));
                 
-                // 2. Fetch Business Profile
-                const { data: biz } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
+                const { data: biz } = await client.from('businesses').select('*').eq('id', activeBusinessId).single();
                 if (biz) setBusinessProfile({ businessName: biz.name, id: biz.id, ...biz.profile });
 
-                // 3. Fetch ONLY members of THIS business (Personnel Isolation)
-                const { data: members } = await supabase
-                    .from('memberships')
-                    .select('user_id, role, initial_investment')
-                    .eq('business_id', activeBusinessId);
-                
+                const { data: members } = await client.from('memberships').select('*').eq('business_id', activeBusinessId);
                 if (members) {
-                    // Note: In a real app, you'd join with a profiles table. 
-                    // For now, mapping IDs as placeholder identities until profiles are standard.
                     setUsers(members.map(m => ({
                         id: m.user_id,
                         name: 'Unit ' + m.user_id.slice(-4),
@@ -242,7 +270,7 @@ const App = () => {
                         initialInvestment: m.initial_investment
                     })));
                 }
-            } catch (err) { console.error(err); }
+            } catch (err) { console.error("Ledger Sync Failure:", err.message || JSON.stringify(err)); }
         };
         fetch();
     }, [activeBusinessId, authUserId]);
@@ -276,7 +304,7 @@ const App = () => {
                             <Routes>
                                 <Route path="dashboard" element={<Dashboard products={products} customers={[]} users={users} sales={sales} expenses={expenses} deposits={[]} expenseRequests={[]} anomalyAlerts={[]} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} />} />
                                 <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
-                                <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} />} />
+                                <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} />} />
                                 <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
                                 <Route path="counter" element={<Counter cart={cart} customers={[]} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={[]} />} />
                                 <Route path="receipts" element={<Receipts sales={sales} customers={[]} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={() => {}} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />

@@ -1,3 +1,4 @@
+
 import React, { memo, useState, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
@@ -7,7 +8,6 @@ import {
     CloseIcon, 
     InventoryIcon,
     DashboardIcon,
-    // Added missing icon imports
     ReportsIcon,
     CalculatorIcon,
     TruckIcon,
@@ -40,7 +40,6 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
         (cart || []).reduce((sum, item) => sum + (item.quantity || 0), 0)
     , [cart]);
 
-    // Primary Nav Items for the Dock
     const navItems: TypedNavItem[] = [
         { to: '/dashboard', text: t('dashboard'), icon: <DashboardIcon /> },
         { to: '/today', text: t('today'), icon: <TodayIcon />, module: 'REPORTS', action: 'view_sales_reports' },
@@ -53,8 +52,6 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
         return hasAccess(currentUser, item.module, item.action, permissions);
     });
 
-    // Secondary Tools (Inside the "More" Drawer)
-    // Fixed: Added missing 'icon' property to each item to match TypedNavItem interface
     const rawFinanceItems: TypedNavItem[] = [
         { to: '/reports', text: t('reports'), icon: <ReportsIcon />, module: 'REPORTS', action: 'view_sales_reports' },
         { to: '/cash-count', text: t('cashVerify'), icon: <CalculatorIcon />, module: 'FINANCE', action: 'cash_count_enter' },
@@ -71,7 +68,6 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
 
     return (
         <>
-            {/* Extended Controls Drawer */}
             {isMenuOpen && (
                 <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:p-6 animate-fade-in font-sans">
                     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)} />
@@ -110,7 +106,6 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
                 </div>
             )}
 
-            {/* Main Navigation Dock */}
             <footer className="md:hidden w-full h-[84px] bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border-t border-slate-100 dark:border-gray-800 flex z-40 fixed bottom-0 left-0 right-0 shadow-[0_-4px_30px_rgba(0,0,0,0.05)] pb-[env(safe-area-inset-bottom)] px-2 overflow-visible">
                 <div className="flex items-center justify-between w-full overflow-visible px-2 max-w-2xl mx-auto">
                     {filteredNavItems.map(item => (
@@ -125,18 +120,15 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
                                 }`
                             }
                         >
-                            {/* Fixed: NavLink children as a function to correctly access 'isActive' for inner elements */}
                             {({ isActive }) => (
                                 <>
                                     <div className="relative overflow-visible flex items-center justify-center">
-                                        {/* Fixed: Cast item.icon to React.ReactElement<any> to allow className property */}
                                         {React.isValidElement(item.icon) ? React.cloneElement(item.icon as React.ReactElement<any>, { className: 'w-6 h-6' }) : item.icon}
                                         {item.badge !== undefined && item.badge > 0 && (
                                             <span className="absolute -top-2 -right-2 badge-standard bg-rose-500 min-w-[18px] h-[18px] !text-[8px] border-2 border-white dark:border-gray-900 flex items-center justify-center font-black animate-scale-in shadow-sm">
                                                 {item.badge > 99 ? '99+' : item.badge}
                                             </span>
                                         )}
-                                        {/* Fixed: isActive is now in scope through the NavLink children function */}
                                         {isActive && <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-8 h-1.5 bg-primary rounded-t-full shadow-[0_-4px_12px_rgba(37,99,235,0.4)] animate-fade-in" />}
                                     </div>
                                     <span className="text-[9px] font-black tracking-tight whitespace-nowrap overflow-hidden text-ellipsis w-full text-center px-1 uppercase">
@@ -147,7 +139,6 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
                         </NavLink>
                     ))}
                     
-                    {/* More Menu Toggle */}
                     <button
                         onClick={() => setIsMenuOpen(true)}
                         className={`flex flex-col items-center justify-center flex-1 h-full transition-all duration-300 gap-1.5 relative overflow-visible active:scale-95 ${

@@ -3,12 +3,12 @@
 import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { supabase } from './lib/supabase';
-import { getSystemLogo, formatCurrency, isRateLimited } from './lib/utils';
+import { getStoredItem, getSystemLogo, formatCurrency } from './lib/utils';
 import { 
-    MenuIcon, CartIcon, CounterIcon, DEFAULT_RECEIPT_SETTINGS, DEFAULT_OWNER_SETTINGS, 
+    MenuIcon, CounterIcon, DEFAULT_RECEIPT_SETTINGS, DEFAULT_OWNER_SETTINGS, 
     DEFAULT_BUSINESS_SETTINGS, FINALIZED_SALE_STATUSES, WarningIcon 
 } from './constants';
-import { DEFAULT_PERMISSIONS, hasAccess } from './lib/permissions';
+import { DEFAULT_PERMISSIONS } from './lib/permissions';
 import { translations } from './lib/translations';
 import type { 
     AppNotification, Sale, User, Withdrawal, Expense, ExpenseRequest, CashCount, 
@@ -92,6 +92,7 @@ export class ErrorBoundary extends React.Component {
                 <div className="max-w-md w-full bg-white dark:bg-gray-900 p-12 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-gray-800 animate-scale-in">
                     <WarningIcon className="w-16 h-16 text-rose-500 mx-auto mb-8" />
                     <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter mb-4">Integrity Breach</h2>
+                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-10 leading-relaxed font-bold">A critical UI exception occurred. No data was lost.</p>
                     <button onClick={() => window.location.reload()} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Restart Protocol</button>
                 </div>
             </div>
@@ -202,7 +203,6 @@ const App = () => {
 
     useEffect(() => { fetchLedger(); }, [activeBusinessId, authUserId]);
 
-    // Governance Logic gate
     const initiateWorkflow = async (type: string, auditId: string, amount: number, metadata: any) => {
         try {
             const client = await supabase.wait();

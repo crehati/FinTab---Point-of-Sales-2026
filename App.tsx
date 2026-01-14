@@ -1,17 +1,14 @@
 
 // @ts-nocheck
-import React, { useState, useEffect, useMemo, useLayoutEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { supabase } from './lib/supabase';
-import { getSystemLogo, formatCurrency } from './lib/utils';
-import { 
-    MenuIcon, CounterIcon, DEFAULT_RECEIPT_SETTINGS, DEFAULT_OWNER_SETTINGS, 
-    DEFAULT_BUSINESS_SETTINGS, FINALIZED_SALE_STATUSES, WarningIcon 
-} from './constants';
+import { getSystemLogo } from './lib/utils';
+import { MenuIcon, CounterIcon, DEFAULT_RECEIPT_SETTINGS, DEFAULT_OWNER_SETTINGS, DEFAULT_BUSINESS_SETTINGS, WarningIcon } from './constants';
 import { DEFAULT_PERMISSIONS } from './lib/permissions';
 import { translations } from './lib/translations';
 
-// Components
+// Component Imports - Critical Registry
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/Sidebar';
 import Inventory from './components/Inventory';
@@ -31,7 +28,6 @@ import Expenses from './components/Expenses';
 import MyProfile from './components/MyProfile';
 import Settings from './components/Settings';
 import SelectBusiness from './components/SelectBusiness';
-import Transactions from './components/Transactions';
 import InvitePage from './components/InvitePage';
 import NotificationCenter from './components/NotificationCenter';
 import InvestorPage from './components/Investor';
@@ -42,19 +38,12 @@ import GoodsCostingPage from './components/GoodsCosting';
 import GoodsReceivingPage from './components/GoodsReceiving';
 import WeeklyInventoryCheckPage from './components/WeeklyInventoryCheck';
 import ExpenseRequestPage from './components/ExpenseRequestPage';
-
-const mapProductFromDb = (p: any) => ({
-    id: p.id, sku: p.sku || '', name: p.name || 'Unnamed Asset', category: p.category || 'General',
-    price: parseFloat(p.price) || 0, costPrice: parseFloat(p.cost_price) || 0, stock: parseInt(p.stock) || 0,
-    imageUrl: p.image_url || 'https://images.unsplash.com/photo-1553413077-190dd305871c?q=80&w=200&h=200&auto=format&fit=crop',
-    commissionPercentage: parseFloat(p.commission_percentage) || 0, tieredPricing: p.tiered_pricing || [],
-    productType: p.product_type || 'simple', variantOptions: p.variant_options || [], variants: p.variants || [],
-});
+import Transactions from './components/Transactions';
 
 const LoadingScreen = () => (
     <div className="h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-gray-950 font-sans">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Synchronizing Node...</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Syncing FinTab Node...</p>
     </div>
 );
 
@@ -66,8 +55,9 @@ export class ErrorBoundary extends React.Component {
             <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950 p-6 text-center font-sans">
                 <div className="max-w-md w-full bg-white dark:bg-gray-900 p-12 rounded-[3.5rem] shadow-2xl border border-slate-100 dark:border-gray-800 animate-scale-in">
                     <WarningIcon className="w-16 h-16 text-rose-500 mx-auto mb-8" />
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter mb-4">Node Failure</h2>
-                    <button onClick={() => window.location.reload()} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Restart Protocol</button>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter mb-4">Integrity Halt</h2>
+                    <p className="text-xs text-slate-400 uppercase tracking-widest mb-10 leading-relaxed font-bold">A localized runtime error was intercepted.</p>
+                    <button onClick={() => window.location.reload()} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Re-auth Node</button>
                 </div>
             </div>
         );
@@ -87,7 +77,7 @@ const App = () => {
     const [language, setLanguage] = useState('en');
     const [theme, setTheme] = useState('light');
 
-    // Operational Global States
+    // State Ledger
     const [products, setProducts] = useState([]);
     const [customers, setCustomers] = useState([]);
     const [users, setUsers] = useState([]); 
@@ -124,7 +114,7 @@ const App = () => {
             } else {
                 setCurrentUser({ id: session.user.id, email: session.user.email, role: 'Staff', status: 'Pending' });
             }
-        } catch (err) { console.error("Identity Error:", err.message); } 
+        } catch (err) { console.error("Identity Sync Failed", err.message); } 
         finally { setIsAuthLoading(false); }
     };
 
@@ -159,8 +149,8 @@ const App = () => {
                 client.from('memberships').select('*').eq('business_id', activeBusinessId)
             ]);
 
-            if (prods.data) setProducts(prods.data.map(mapProductFromDb));
-            if (custs.data) setCustomers(custs.data.map(c => ({ id: c.id, name: c.name, email: c.email || '', phone: c.phone || '', joinDate: c.created_at, purchaseHistory: [] })));
+            if (prods.data) setProducts(prods.data.map(p => ({ ...p, price: parseFloat(p.price), costPrice: parseFloat(p.cost_price), stock: parseInt(p.stock) })));
+            if (custs.data) setCustomers(custs.data);
             if (sls.data) setSales(sls.data);
             if (exps.data) setExpenses(exps.data);
             if (banks.data) setBankAccounts(banks.data);
@@ -168,49 +158,66 @@ const App = () => {
             if (alerts.data) setAnomalyAlerts(alerts.data);
             if (biz.data) setBusinessProfile({ businessName: biz.data.name, id: biz.data.id, ...biz.data.profile });
             if (members.data) setUsers(members.data.map(m => ({ id: m.user_id, name: 'Unit ' + m.user_id.slice(-4), role: m.role, avatarUrl: `https://ui-avatars.com/api/?name=${m.user_id.slice(-4)}`, email: '...', status: 'Active', initialInvestment: m.initial_investment })));
-        } catch (err) { console.error("Sync Failure:", err.message); }
+        } catch (err) { console.error("Sync Failure", err.message); }
     };
 
     useEffect(() => { fetchLedger(); }, [activeBusinessId, authUserId]);
 
     const advanceWorkflow = async (requestId: string, nextStatus: string, note?: string) => {
-        try {
-            const client = await supabase.wait();
-            await client.from('approval_requests').update({ status: nextStatus }).eq('id', requestId);
-            await client.from('approval_signatures').insert({ request_id: requestId, user_id: currentUser.id, status_assigned: nextStatus, note });
-            await fetchLedger();
-            return true;
-        } catch (err) { alert(err.message); return false; }
+        const client = await supabase.wait();
+        await client.from('approval_requests').update({ status: nextStatus }).eq('id', requestId);
+        await client.from('approval_signatures').insert({ request_id: requestId, user_id: currentUser.id, status_assigned: nextStatus, note });
+        await fetchLedger();
+        return true;
     };
 
     const initiateWorkflow = async (type: string, auditId: string, amount: number, metadata: any) => {
-        try {
-            const client = await supabase.wait();
-            const { data } = await client.from('approval_requests').insert({ business_id: activeBusinessId, type, audit_link_id: auditId, amount, status: 'pending_v1', created_by: currentUser.id, metadata }).select().single();
-            await fetchLedger();
-            return data.id;
-        } catch (err) { alert(err.message); return null; }
+        const client = await supabase.wait();
+        const { data } = await client.from('approval_requests').insert({ business_id: activeBusinessId, type, audit_link_id: auditId, amount, status: 'pending_v1', created_by: currentUser.id, metadata }).select().single();
+        await fetchLedger();
+        return data.id;
     };
+
+    // Unified Ledger Computation for Reports
+    const unifiedLedger = useMemo(() => {
+        const sEntries = (sales || []).map(s => ({
+            id: s.id,
+            date: s.date,
+            created_at: s.date,
+            type: 'SALE',
+            amount: s.total,
+            audit_link_id: s.id.slice(-8).toUpperCase(),
+            actor_id: s.userId
+        }));
+        const eEntries = (expenses || []).filter(e => e.status !== 'deleted').map(e => ({
+            id: e.id,
+            date: e.date,
+            created_at: e.date,
+            type: 'EXPENSE',
+            amount: -e.amount,
+            audit_link_id: e.id.slice(-8).toUpperCase(),
+            actor_id: 'SYSTEM'
+        }));
+        return [...sEntries, ...eEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [sales, expenses]);
 
     const t = (k) => translations[language]?.[k] || k;
 
     if (isAuthLoading) return <LoadingScreen />;
 
     if (!authUserId) return (
-        <div className="h-screen flex flex-col bg-slate-50 dark:bg-gray-950 overflow-hidden">
-            <Routes>
-                <Route path="/invite" element={<InvitePage currentUser={null} />} />
-                <Route path="*" element={<Login onEnterDemo={() => {}} />} />
-            </Routes>
-        </div>
+        <Routes>
+            <Route path="/invite" element={<InvitePage currentUser={null} />} />
+            <Route path="*" element={<Login onEnterDemo={() => {}} />} />
+        </Routes>
     );
 
     if (!activeBusinessId && location.pathname !== '/invite' && location.pathname !== '/onboarding') {
-        return <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} isOwnerAdmin={currentUser?.role === 'Owner'} />;
+        return <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} />;
     }
 
     return (
-        <div className={`h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950 overflow-hidden`}>
+        <div className={`h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950 overflow-hidden font-sans`}>
             <div className="flex flex-1 h-full overflow-hidden">
                 <Sidebar t={t} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} businessProfile={businessProfile} cart={cart} onLogout={() => supabase.auth.signOut()} ownerSettings={DEFAULT_OWNER_SETTINGS} />
                 <div className="flex-1 flex flex-col h-full overflow-hidden relative">
@@ -242,24 +249,39 @@ const App = () => {
                         <main className="p-4 md:p-10 min-h-full max-w-[1600px] mx-auto">
                             <Suspense fallback={<LoadingScreen />}>
                                 <Routes>
+                                    {/* CORE MODULES */}
                                     <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} advanceWorkflow={advanceWorkflow} />} />
-                                    <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
+                                    <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={unifiedLedger} />} />
                                     <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={async (d, edit) => { const client = await supabase.wait(); if(edit) await client.from('products').update(d).eq('id', d.id); else await client.from('products').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} onDeleteProduct={async (id) => { const client = await supabase.wait(); await client.from('products').delete().eq('id', id); await fetchLedger(); }} />} />
-                                    <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
                                     <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onProcessSale={async (s) => { const client = await supabase.wait(); await client.from('sales').insert({...s, business_id: activeBusinessId}); await fetchLedger(); }} onAddCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} />} />
-                                    <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
-                                    <Route path="customers" element={<Customers customers={customers} handleSaveCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                    <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
-                                    <Route path="investors" element={<InvestorPage users={users} netProfit={sales.reduce((s,x)=>s+x.total, 0) - expenses.reduce((s,x)=>s+x.amount, 0)} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={initiateWorkflow} />} />
-                                    <Route path="alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onMarkRead={() => {}} onDismiss={() => {}} />} />
-                                    <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} bankTransactions={bankTransactions} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setBankAccounts={setBankAccounts} setBankTransactions={setBankTransactions} users={users} />} />
+                                    
+                                    {/* FINANCE & LOGISTICS */}
                                     <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} initiateWorkflow={initiateWorkflow} advanceWorkflow={advanceWorkflow} t={t} />} />
+                                    <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} bankTransactions={bankTransactions} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setBankAccounts={setBankAccounts} setBankTransactions={setBankTransactions} users={users} />} />
+                                    <Route path="transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} onRequestDeposit={async (amt, desc, bankId) => { const client = await supabase.wait(); await client.from('deposits').insert({ business_id: activeBusinessId, user_id: currentUser.id, amount: amt, description: desc, bank_account_id: bankId, status: 'pending' }); await fetchLedger(); }} onUpdateDepositStatus={async (id, status) => { const client = await supabase.wait(); await client.from('deposits').update({ status }).eq('id', id); await fetchLedger(); }} t={t} />} />
+                                    
+                                    {/* AUDIT & SHIPMENT */}
                                     <Route path="goods-costing" element={<GoodsCostingPage goodsCostings={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
                                     <Route path="goods-receiving" element={<GoodsReceivingPage goodsReceivings={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} />} />
                                     <Route path="weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={() => {}} t={t} />} />
+
+                                    {/* CLIENT & STAFF MANAGEMENT */}
+                                    <Route path="customers" element={<Customers customers={customers} handleSaveCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
+                                    <Route path="investors" element={<InvestorPage users={users} netProfit={sales.reduce((s,x)=>s+x.total, 0) - expenses.reduce((s,x)=>s+x.amount, 0)} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={initiateWorkflow} />} />
+                                    
+                                    {/* SYSTEM UTILS */}
+                                    <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
+                                    <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
+                                    <Route path="expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={async (d) => { const client = await supabase.wait(); await client.from('expenses').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} bankAccounts={bankAccounts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={async (d) => { const client = await supabase.wait(); await client.from('expense_requests').insert({...d, business_id: activeBusinessId, user_id: currentUser.id}); await fetchLedger(); }} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} />} />
+                                    <Route path="alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onMarkRead={() => {}} onDismiss={() => {}} />} />
+                                    <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
+                                    <Route path="commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} />} />
                                     <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} />} />
+                                    <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
                                     <Route path="*" element={<Navigate to="dashboard" replace />} />
                                 </Routes>
                             </Suspense>

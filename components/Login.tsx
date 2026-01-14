@@ -64,9 +64,9 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
     };
 
     return (
-        <div className="min-h-screen bg-[#F8FAFC] dark:bg-gray-950 flex flex-col items-center justify-center p-8 font-sans">
-            <div className="w-full max-w-[440px] animate-fade-in space-y-10">
-                <div className="text-center">
+        <div className="min-h-screen bg-[#F8FAFC] dark:bg-gray-950 flex items-center justify-center p-6 sm:p-10 font-sans overflow-y-auto">
+            <div className="w-full max-w-[480px] animate-fade-in flex flex-col items-center">
+                <div className="text-center mb-10">
                     <FinTabLogo />
                     <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-none mt-4">
                         {authMode === 'login' ? 'Authorize Entry' : authMode === 'signup' ? 'Enroll Node' : 'Recovery Node'}
@@ -74,29 +74,37 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-3">Identity Authentication Protocol</p>
                 </div>
 
-                <div className="bg-white dark:bg-gray-900 p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">
+                <div className="w-full bg-white dark:bg-gray-900 p-10 sm:p-14 rounded-[3.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.1)] border border-slate-100 dark:border-gray-800">
                     <form onSubmit={handleAuth} className="space-y-6">
-                        {error && <div className="p-4 bg-rose-50 text-rose-600 text-[10px] font-black uppercase rounded-xl border border-rose-100 animate-shake text-center">{error}</div>}
-                        {infoMessage && <div className="p-4 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-xl border border-emerald-100 text-center">{infoMessage}</div>}
+                        {error && (
+                            <div className="p-5 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-[10px] font-black uppercase rounded-2xl border border-rose-100 dark:border-rose-900/30 animate-shake text-center leading-relaxed">
+                                {error}
+                            </div>
+                        )}
+                        {infoMessage && (
+                            <div className="p-5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase rounded-2xl border border-emerald-100 dark:border-emerald-900/30 text-center leading-relaxed">
+                                {infoMessage}
+                            </div>
+                        )}
                         
                         {authMode === 'signup' && (
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase text-slate-400 px-1">Full Identity Name</label>
+                                <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Full Identity Name</label>
                                 <input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" placeholder="e.g. Jean Dupont" />
                             </div>
                         )}
                         
                         <div className="space-y-2">
-                            <label className="text-[10px] font-black uppercase text-slate-400 px-1">Email Address</label>
+                            <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Email Address</label>
                             <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" placeholder="name@domain.com" />
                         </div>
                         
                         {authMode !== 'reset' && (
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center px-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400">Security Password</label>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Security Password</label>
                                     {authMode === 'login' && (
-                                        <button type="button" onClick={() => setAuthMode('reset')} className="text-[10px] font-black uppercase text-primary hover:underline">Forgot?</button>
+                                        <button type="button" onClick={() => setAuthMode('reset')} className="text-[10px] font-black uppercase text-primary hover:underline tracking-widest">Forgot?</button>
                                     )}
                                 </div>
                                 <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" placeholder="••••••••" />
@@ -104,22 +112,26 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                             </div>
                         )}
 
-                        <button type="submit" disabled={isLoading} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] shadow-xl active:scale-[0.98] flex items-center justify-center gap-3">
-                            {isLoading ? <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div> : (authMode === 'login' ? 'Authorize Entry' : authMode === 'signup' ? 'Initialize' : 'Send Reset Link')}
+                        <button type="submit" disabled={isLoading} className="w-full bg-slate-900 dark:bg-primary text-white py-5 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+                            {isLoading ? <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div> : (authMode === 'login' ? 'Authorize Entry' : authMode === 'signup' ? 'Initialize Node' : 'Send Reset Link')}
                         </button>
                     </form>
 
-                    <div className="mt-8 pt-8 border-t border-slate-50 dark:border-gray-800 text-center space-y-4">
+                    <div className="mt-10 pt-10 border-t border-slate-50 dark:border-gray-800 text-center space-y-4">
                         {authMode === 'login' ? (
                             <button onClick={() => setAuthMode('signup')} className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-primary transition-colors">Enroll New Global Identity</button>
                         ) : (
                             <button onClick={() => setAuthMode('login')} className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest hover:text-primary transition-colors">Return to Authorization Hub</button>
                         )}
                         {authMode === 'login' && (
-                            <div><button onClick={onEnterDemo} className="text-[10px] font-bold text-slate-400 hover:text-emerald-500 uppercase tracking-[0.2em] transition-all">Launch Terminal Demo</button></div>
+                            <div className="pt-2">
+                                <button onClick={onEnterDemo} className="text-[9px] font-bold text-slate-300 hover:text-emerald-500 uppercase tracking-[0.3em] transition-all">Launch Terminal Protocol Demo</button>
+                            </div>
                         )}
                     </div>
                 </div>
+                
+                <p className="mt-10 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4.4</p>
             </div>
         </div>
     );

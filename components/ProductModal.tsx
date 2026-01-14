@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Product, ReceiptSettingsData, ProductVariant } from '../types';
@@ -341,7 +340,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, pr
                                                     <td className="p-5">
                                                         <div className="relative">
                                                             <div className="absolute inset-y-0 left-2 flex items-center pointer-events-none text-[9px] text-slate-400 font-bold">{cs}</div>
-                                                            <input type="number" value={variant.price} onChange={e => handleVariantChange(index, 'price', e.target.value)} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-xl p-2.5 pl-6 text-right font-black tabular-nums" step="0.01" disabled={isSaving} />
+                                                            <input type="number" value={variant.price} onChange={e => handleVariantChange(index, 'price', e.target.value)} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-xl p-2.5 !pl-10 text-right font-black tabular-nums" step="0.01" disabled={isSaving} />
                                                         </div>
                                                     </td>
                                                     <td className="p-5">
@@ -362,14 +361,14 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, pr
                                 <label htmlFor="price" className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 block">Market Value ({cs})</label>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 font-black text-lg">{cs}</div>
-                                    <input type="number" name="price" id="price" value={formData.price} onChange={handleChange} required min="0" step="0.01" className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-5 pl-12 pr-6 text-2xl font-black focus:ring-4 focus:ring-primary/10 transition-all outline-none tabular-nums" placeholder="0.00" disabled={isSaving} />
+                                    <input type="number" name="price" id="price" value={formData.price} onChange={handleChange} required min="0" step="0.01" className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-5 !pl-16 pr-6 text-2xl font-black focus:ring-4 focus:ring-primary/10 transition-all outline-none tabular-nums" placeholder="0.00" disabled={isSaving} />
                                 </div>
                             </div>
                             <div className="space-y-4">
                                 <label htmlFor="costPrice" className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 block">Unit Acq Cost ({cs})</label>
                                 <div className="relative">
                                     <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 font-black text-lg">{cs}</div>
-                                    <input type="number" name="costPrice" id="costPrice" value={formData.costPrice} onChange={handleChange} required min="0" step="0.01" className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-5 pl-12 pr-6 text-2xl font-black focus:ring-4 focus:ring-primary/10 transition-all outline-none tabular-nums" placeholder="0.00" disabled={isSaving} />
+                                    <input type="number" name="costPrice" id="costPrice" value={formData.costPrice} onChange={handleChange} required min="0" step="0.01" className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl py-5 !pl-16 pr-6 text-2xl font-black focus:ring-4 focus:ring-primary/10 transition-all outline-none tabular-nums" placeholder="0.00" disabled={isSaving} />
                                 </div>
                             </div>
                         </div>
@@ -409,7 +408,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, pr
                                                     type="number" 
                                                     value={tier.price} 
                                                     onChange={e => handleTierChange(idx, 'price', e.target.value)} 
-                                                    className="w-full bg-white dark:bg-gray-900 border-none rounded-xl p-3 pl-7 text-xs font-bold outline-none tabular-nums" 
+                                                    className="w-full bg-white dark:bg-gray-900 border-none rounded-xl p-3 !pl-10 text-xs font-bold outline-none tabular-nums" 
                                                     placeholder="0.00" 
                                                 />
                                             </div>

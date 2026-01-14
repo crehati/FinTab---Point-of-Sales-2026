@@ -7,6 +7,7 @@ import ModalShell from './ModalShell';
 import EmptyState from './EmptyState';
 import { BankIcon, PlusIcon, TransactionIcon, WarningIcon } from '../constants';
 import { formatCurrency, formatAbbreviatedNumber } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
 interface BankAccountsPageProps {
     bankAccounts: BankAccount[];
@@ -26,8 +27,10 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
     const [selectedAccountForLedger, setSelectedAccountForLedger] = useState<BankAccount | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const cs = receiptSettings.currencySymbol;
+    const activeBusinessId = localStorage.getItem('fintab_active_business_id');
 
     // Account Form State
     const [newAccount, setNewAccount] = useState({ bankName: '', accountName: '', accountNumber: '' });
@@ -38,93 +41,132 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
     // Deposit Form State
     const [depositData, setDepositData] = useState({ accountId: '', amount: '', description: '' });
 
-    const handleAddAccount = () => {
+    const handleAddAccount = async () => {
         if (bankAccounts.length >= 10) {
             alert("Protocol Limit: System only supports up to 10 authorized bank nodes.");
             return;
         }
         if (!newAccount.bankName || !newAccount.accountName) return;
 
-        const account: BankAccount = {
-            id: `bank-${Date.now()}`,
-            bankName: newAccount.bankName,
-            accountName: newAccount.accountName,
-            accountNumber: newAccount.accountNumber,
-            balance: 0,
-            status: 'Active'
-        };
+        setIsProcessing(true);
+        try {
+            const client = await supabase.wait();
+            const { error } = await client.from('bank_accounts').insert({
+                bank_name: newAccount.bankName,
+                account_name: newAccount.accountName,
+                account_number: newAccount.accountNumber,
+                balance: 0,
+                status: 'Active',
+                business_id: activeBusinessId
+            });
 
-        setBankAccounts(prev => [...(prev || []), account]);
-        setIsAddAccountModalOpen(false);
-        setNewAccount({ bankName: '', accountName: '', accountNumber: '' });
+            if (error) throw error;
+            
+            setIsAddModalOpen(false);
+            setNewAccount({ bankName: '', accountName: '', accountNumber: '' });
+            // Re-fetch via parent state management or direct fetch
+            window.location.reload(); 
+        } catch (err) {
+            alert("Node Creation Error: Could not enroll bank in cloud registry.");
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
-    const handleManualDeposit = () => {
+    const handleManualDeposit = async () => {
         const amt = parseFloat(depositData.amount);
         if (isNaN(amt) || amt <= 0 || !depositData.accountId) return;
 
-        setBankAccounts(prev => prev.map(b => b.id === depositData.accountId ? { ...b, balance: b.balance + amt } : b));
-        
-        const transaction: BankTransaction = {
-            id: `bt-${Date.now()}`,
-            date: new Date().toISOString(),
-            bankAccountId: depositData.accountId,
-            type: 'deposit',
-            amount: amt,
-            description: depositData.description || 'Manual Fund Injection',
-            userId: currentUser.id
-        };
+        setIsProcessing(true);
+        try {
+            const client = await supabase.wait();
+            const targetAcc = bankAccounts.find(b => b.id === depositData.accountId);
+            
+            // 1. Update Balance
+            const { error: updError } = await client.from('bank_accounts').update({ 
+                balance: (targetAcc?.balance || 0) + amt 
+            }).eq('id', depositData.accountId);
 
-        setBankTransactions(prev => [transaction, ...(prev || [])]);
-        setIsDepositModalOpen(false);
-        setDepositData({ accountId: '', amount: '', description: '' });
+            if (updError) throw updError;
+
+            // 2. Log Transaction
+            await client.from('bank_transactions').insert({
+                bank_account_id: depositData.accountId,
+                type: 'deposit',
+                amount: amt,
+                description: depositData.description || 'Manual Fund Injection',
+                user_id: currentUser.id,
+                business_id: activeBusinessId,
+                date: new Date().toISOString()
+            });
+
+            setIsDepositModalOpen(false);
+            setDepositData({ accountId: '', amount: '', description: '' });
+            window.location.reload();
+        } catch (err) {
+            alert("Liquidity Shift Error: Persistence failure.");
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
-    const handleTransfer = () => {
+    const handleTransfer = async () => {
         const amt = parseFloat(transferData.amount);
         if (isNaN(amt) || amt <= 0 || !transferData.fromId || !transferData.toId) return;
         if (transferData.fromId === transferData.toId) return;
 
         const fromAcc = bankAccounts.find(b => b.id === transferData.fromId);
+        const toAcc = bankAccounts.find(b => b.id === transferData.toId);
+        
         if (fromAcc.balance < amt) {
             alert("Insufficient Liquidity: Source node balance too low.");
             return;
         }
 
-        setBankAccounts(prev => prev.map(b => {
-            if (b.id === transferData.fromId) return { ...b, balance: b.balance - amt };
-            if (b.id === transferData.toId) return { ...b, balance: b.balance + amt };
-            return b;
-        }));
+        setIsProcessing(true);
+        try {
+            const client = await supabase.wait();
+            
+            // Deduct From Source
+            await client.from('bank_accounts').update({ balance: fromAcc.balance - amt }).eq('id', transferData.fromId);
+            // Add To Target
+            await client.from('bank_accounts').update({ balance: toAcc.balance + amt }).eq('id', transferData.toId);
 
-        const ts = new Date().toISOString();
-        const transOut: BankTransaction = {
-            id: `bt-${Date.now()}-out`,
-            date: ts,
-            bankAccountId: transferData.fromId,
-            type: 'transfer_out',
-            amount: -amt,
-            description: `Internal Transfer to ${bankAccounts.find(b => b.id === transferData.toId)?.accountName}`,
-            userId: currentUser.id
-        };
-        const transIn: BankTransaction = {
-            id: `bt-${Date.now()}-in`,
-            date: ts,
-            bankAccountId: transferData.toId,
-            type: 'transfer_in',
-            amount: amt,
-            description: `Internal Transfer from ${fromAcc.accountName}`,
-            userId: currentUser.id
-        };
+            const ts = new Date().toISOString();
+            // Log Tx 1
+            await client.from('bank_transactions').insert({
+                bank_account_id: transferData.fromId,
+                type: 'transfer_out',
+                amount: -amt,
+                description: `Internal Transfer to ${toAcc.accountName}`,
+                user_id: currentUser.id,
+                business_id: activeBusinessId,
+                date: ts
+            });
+            // Log Tx 2
+            await client.from('bank_transactions').insert({
+                bank_account_id: transferData.toId,
+                type: 'transfer_in',
+                amount: amt,
+                description: `Internal Transfer from ${fromAcc.accountName}`,
+                user_id: currentUser.id,
+                business_id: activeBusinessId,
+                date: ts
+            });
 
-        setBankTransactions(prev => [transIn, transOut, ...(prev || [])]);
-        setIsTransferModalOpen(false);
-        setTransferData({ fromId: '', toId: '', amount: '' });
+            setIsTransferModalOpen(false);
+            setTransferData({ fromId: '', toId: '', amount: '' });
+            window.location.reload();
+        } catch (err) {
+            alert("Grid Rebalance Failure: Node sync interrupted.");
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     const filteredTransactions = useMemo(() => {
         if (!selectedAccountForLedger) return [];
-        return bankTransactions.filter(t => t.bankAccountId === selectedAccountForLedger.id);
+        return bankTransactions.filter(t => t.bank_account_id === selectedAccountForLedger.id);
     }, [bankTransactions, selectedAccountForLedger]);
 
     const totalSystemLiquidity = useMemo(() => bankAccounts.reduce((sum, b) => sum + b.balance, 0), [bankAccounts]);
@@ -139,7 +181,7 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                 <div className="flex gap-4">
                     <button onClick={() => setIsTransferModalOpen(true)} className="px-8 py-3 bg-white dark:bg-gray-800 border border-slate-100 dark:border-gray-700 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-white hover:bg-slate-50 transition-all">Internal Transfer</button>
                     <button onClick={() => setIsDepositModalOpen(true)} className="px-8 py-3 bg-white dark:bg-gray-800 border border-slate-100 dark:border-gray-700 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-white hover:bg-slate-50 transition-all">Manual Deposit</button>
-                    <button onClick={() => setIsAddAccountModalOpen(true)} disabled={bankAccounts.length >= 10} className="px-10 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 hover:bg-blue-700 transition-all disabled:opacity-50">Enroll Bank</button>
+                    <button onClick={() => setIsAddAccountModalOpen(true)} disabled={bankAccounts.length >= 10 || isProcessing} className="px-10 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-primary/20 hover:bg-blue-700 transition-all disabled:opacity-50">Enroll Bank</button>
                 </div>
             </header>
 
@@ -237,17 +279,17 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                 <div className="space-y-6">
                     <div>
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Bank Enterprise Name</label>
-                        <input type="text" value={newAccount.bankName} onChange={e => setNewAccount({...newAccount, bankName: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="e.g. Unibank, Sogebank" />
+                        <input type="text" value={newAccount.bankName} onChange={e => setNewAccount({...newAccount, bankName: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="e.g. Unibank, Sogebank" />
                     </div>
                     <div>
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Account Descriptor</label>
-                        <input type="text" value={newAccount.accountName} onChange={e => setNewAccount({...newAccount, accountName: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="e.g. Primary Savings, USD Operating" />
+                        <input type="text" value={newAccount.accountName} onChange={e => setNewAccount({...newAccount, accountName: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="e.g. Primary Savings, USD Operating" />
                     </div>
                     <div>
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Account Identifier (Optional)</label>
-                        <input type="text" value={newAccount.accountNumber} onChange={e => setNewAccount({...newAccount, accountNumber: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="XXXX-XXXX-XXXX" />
+                        <input type="text" value={newAccount.accountNumber} onChange={e => setNewAccount({...newAccount, accountNumber: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="XXXX-XXXX-XXXX" />
                     </div>
-                    <button onClick={handleAddAccount} className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Authorize Node</button>
+                    <button onClick={handleAddAccount} disabled={isProcessing} className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Authorize Node</button>
                 </div>
             </ModalShell>
 
@@ -256,7 +298,7 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                 <div className="space-y-6">
                     <div>
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Destination Node</label>
-                        <select value={depositData.accountId} onChange={e => setDepositData({...depositData, accountId: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10">
+                        <select value={depositData.accountId} onChange={e => setDepositData({...depositData, accountId: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-primary/10">
                             <option value="">Select Account...</option>
                             {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.bankName} - {b.accountName}</option>)}
                         </select>
@@ -269,7 +311,7 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Audit Description</label>
                         <input type="text" value={depositData.description} onChange={e => setDepositData({...depositData, description: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold outline-none" placeholder="Context for manual deposit..." />
                     </div>
-                    <button onClick={handleManualDeposit} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Commit Injection</button>
+                    <button onClick={handleManualDeposit} disabled={isProcessing} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Commit Injection</button>
                 </div>
             </ModalShell>
 
@@ -296,7 +338,7 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                         <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Transfer Quantum ({cs})</label>
                         <input type="number" value={transferData.amount} onChange={e => setTransferData({...transferData, amount: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-6 text-3xl font-black tabular-nums outline-none" placeholder="0.00" />
                     </div>
-                    <button onClick={handleTransfer} className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Authorize Grid Shift</button>
+                    <button onClick={handleTransfer} disabled={isProcessing} className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Authorize Grid Shift</button>
                 </div>
             </ModalShell>
         </div>

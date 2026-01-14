@@ -149,7 +149,14 @@ const App = () => {
                 client.from('memberships').select('*').eq('business_id', activeBusinessId)
             ]);
 
-            if (prods.data) setProducts(prods.data.map(p => ({ ...p, price: parseFloat(p.price), costPrice: parseFloat(p.cost_price), stock: parseInt(p.stock) })));
+            if (prods.data) setProducts(prods.data.map(p => ({ 
+                ...p, 
+                price: parseFloat(p.price), 
+                costPrice: parseFloat(p.cost_price), 
+                stock: parseInt(p.stock), 
+                imageUrl: p.image_url,
+                stockHistory: p.stock_history || [] 
+            })));
             if (custs.data) setCustomers(custs.data);
             if (sls.data) setSales(sls.data);
             if (exps.data) setExpenses(exps.data);
@@ -200,6 +207,73 @@ const App = () => {
         }));
         return [...sEntries, ...eEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [sales, expenses]);
+
+    const handleSaveProduct = async (d: any, edit: boolean) => {
+        try {
+            const client = await supabase.wait();
+            const dbProduct = {
+                name: d.name,
+                sku: d.sku,
+                description: d.description,
+                category: d.category,
+                price: d.price,
+                cost_price: d.costPrice,
+                stock: d.stock,
+                image_url: d.imageUrl,
+                commission_percentage: d.commissionPercentage,
+                product_type: d.productType || 'simple',
+                variant_options: d.variantOptions || [],
+                variants: d.variants || [],
+                tiered_pricing: d.tieredPricing || [],
+                business_id: activeBusinessId
+            };
+
+            if (edit) {
+                const { error } = await client.from('products').update(dbProduct).eq('id', d.id);
+                if (error) throw error;
+            } else {
+                const { error } = await client.from('products').insert(dbProduct);
+                if (error) throw error;
+            }
+            await fetchLedger();
+        } catch (err) {
+            console.error("Cloud Protocol Error: Product save failed", err.message);
+            alert("Integrity Error: Could not commit asset to cloud registry.");
+        }
+    };
+
+    const handleSaveStockAdjustment = async (productId: string, adj: any) => {
+        try {
+            const client = await supabase.wait();
+            const product = products.find(p => p.id === productId);
+            if (!product) return;
+
+            const qty = Number(adj.quantity);
+            const newStock = adj.type === 'add' ? product.stock + qty : product.stock - qty;
+
+            const newHistoryItem = {
+                date: new Date().toISOString(),
+                userId: currentUser.id,
+                type: adj.type,
+                quantity: qty,
+                reason: adj.reason,
+                newStockLevel: newStock
+            };
+
+            const updatedHistory = [newHistoryItem, ...(product.stockHistory || [])];
+
+            const { error } = await client.from('products').update({
+                stock: newStock,
+                stock_history: updatedHistory
+            }).eq('id', productId);
+
+            if (error) throw error;
+            await fetchLedger();
+        } catch (err) {
+            console.error("Stock Audit Failure", err.message);
+            alert("Digital Logic Error: Could not commit stock shift to registry.");
+        }
+    };
 
     const t = (k) => translations[language]?.[k] || k;
 
@@ -253,8 +327,31 @@ const App = () => {
                                     <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} advanceWorkflow={advanceWorkflow} />} />
                                     <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={unifiedLedger} />} />
-                                    <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={async (d, edit) => { const client = await supabase.wait(); if(edit) await client.from('products').update(d).eq('id', d.id); else await client.from('products').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} onDeleteProduct={async (id) => { const client = await supabase.wait(); await client.from('products').delete().eq('id', id); await fetchLedger(); }} />} />
-                                    <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onProcessSale={async (s) => { const client = await supabase.wait(); await client.from('sales').insert({...s, business_id: activeBusinessId}); await fetchLedger(); }} onAddCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} />} />
+                                    <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={handleSaveProduct} onSaveStockAdjustment={handleSaveStockAdjustment} onDeleteProduct={async (id) => { const client = await supabase.wait(); await client.from('products').delete().eq('id', id); await fetchLedger(); }} />} />
+                                    <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onProcessSale={async (s) => { 
+                                        const client = await supabase.wait(); 
+                                        const { data: saleData, error: saleError } = await client.from('sales').insert({...s, id: undefined, business_id: activeBusinessId}).select().single(); 
+                                        if (saleError) { console.error("Sale Commit Failure", saleError.message); alert("Protocol Error: Sale could not be persisted."); return; }
+                                        
+                                        // Post-Sale Inventory Protocol: Deduct Units
+                                        for (const item of s.items) {
+                                            const pid = item.product.id;
+                                            const { data: current } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
+                                            if (current) {
+                                                const newStock = Math.max(0, current.stock - item.quantity);
+                                                const history = [{
+                                                    date: new Date().toISOString(),
+                                                    userId: currentUser.id,
+                                                    type: 'remove',
+                                                    quantity: item.quantity,
+                                                    reason: `POS Sale Settlement (Ref: ${saleData.id.slice(-8).toUpperCase()})`,
+                                                    newStockLevel: newStock
+                                                }, ...(current.stock_history || [])];
+                                                await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
+                                            }
+                                        }
+                                        await fetchLedger(); 
+                                    }} onAddCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} />} />
                                     
                                     {/* FINANCE & LOGISTICS */}
                                     <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} initiateWorkflow={initiateWorkflow} advanceWorkflow={advanceWorkflow} t={t} />} />

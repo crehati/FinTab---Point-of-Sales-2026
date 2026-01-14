@@ -13,13 +13,14 @@ import { formatCurrency, formatAbbreviatedNumber } from '../lib/utils';
 interface CustomersProps {
     customers: Customer[];
     setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>;
+    handleSaveCustomer: (data: any) => void;
     t: (key: string) => string;
     receiptSettings: ReceiptSettingsData;
     trialLimits?: { canAddCustomer: boolean };
 }
 
 const Customers: React.FC<CustomersProps> = ({ 
-    customers = [], setCustomers, t, receiptSettings, 
+    customers = [], handleSaveCustomer, t, receiptSettings, 
     trialLimits = { canAddCustomer: true } 
 }) => {
     const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -27,7 +28,7 @@ const Customers: React.FC<CustomersProps> = ({
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 5;
+    const itemsPerPage = 10;
     const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
     const actionMenuRef = useRef<HTMLDivElement>(null);
     
@@ -69,18 +70,8 @@ const Customers: React.FC<CustomersProps> = ({
     const handleOpenAddModal = () => { setEditingCustomer(null); setIsCustomerModalOpen(true); };
     const handleOpenEditModal = (customer: Customer) => { setEditingCustomer(customer); setIsCustomerModalOpen(true); };
 
-    const handleSaveCustomer = (customerData: Omit<Customer, 'id' | 'joinDate' | 'purchaseHistory'>) => {
-        if (editingCustomer) {
-            setCustomers(prev => prev.map(c => c.id === editingCustomer.id ? { ...c, ...customerData } : c));
-        } else {
-            const newCustomer: Customer = {
-                ...customerData,
-                id: `cust-${Date.now()}`,
-                joinDate: new Date().toISOString(),
-                purchaseHistory: [],
-            };
-            setCustomers(prev => [newCustomer, ...prev]);
-        }
+    const onSave = (customerData: any) => {
+        handleSaveCustomer(customerData);
         setIsCustomerModalOpen(false);
     };
 
@@ -149,89 +140,32 @@ const Customers: React.FC<CustomersProps> = ({
                                     </table>
                                 </div>
                             </div>
-                            <div className="md:hidden space-y-4">
-                                {paginatedCustomers.map(customer => (
-                                    <div key={customer.id} className="bg-white dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-700 relative">
-                                        <div className="pr-12">
-                                            <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base truncate">{customer.name}</p>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{customer.phone}</p>
-                                        </div>
-                                        <div className="flex justify-between items-end mt-6 pt-4 border-t dark:border-gray-700">
-                                            <div>
-                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Lifetime Yield</p>
-                                                <p className="text-xl font-black text-emerald-600 tabular-nums">{formatCurrency(getTotalSpent(customer), cs)}</p>
-                                            </div>
-                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{customer.purchaseHistory.length} Orders</p>
-                                        </div>
-                                        <div className="absolute top-6 right-6">
-                                            <div className="relative" ref={openActionMenuId === customer.id ? actionMenuRef : null}>
-                                                <button onClick={(e) => { e.stopPropagation(); setOpenActionMenuId(openActionMenuId === customer.id ? null : customer.id); }} className={`p-3 rounded-2xl transition-all ${openActionMenuId === customer.id ? 'bg-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 dark:hover:bg-gray-700'}`}>
-                                                    <MoreVertIcon className="w-4 h-4" />
-                                                </button>
-                                                {openActionMenuId === customer.id && (
-                                                    <div className="absolute right-0 mt-3 w-48 bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-gray-700 z-[100] py-4 overflow-hidden animate-scale-in origin-top-right">
-                                                        <button onClick={() => { setSelectedCustomer(customer); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors">Identity Profile</button>
-                                                        <button onClick={() => { handleOpenEditModal(customer); setOpenActionMenuId(null); }} className="w-full text-left px-6 py-3.5 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-colors">Edit identity</button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
+                            
                             {/* Pagination Controls */}
                             {totalPages > 1 && (
                                 <div className="mt-8 flex justify-center items-center gap-2">
-                                    <button 
-                                        disabled={currentPage === 1}
-                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
-                                    >
-                                        Prev
-                                    </button>
+                                    <button disabled={currentPage === 1} onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30">Prev</button>
                                     <div className="flex gap-1 overflow-x-auto no-scrollbar max-w-[200px] sm:max-w-none">
                                         {Array.from({ length: totalPages }).map((_, i) => (
-                                            <button
-                                                key={i}
-                                                onClick={() => setCurrentPage(i + 1)}
-                                                className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all active:scale-95 ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-gray-700'}`}
-                                            >
-                                                {i + 1}
-                                            </button>
+                                            <button key={i} onClick={() => setCurrentPage(i + 1)} className={`flex-shrink-0 w-8 h-8 rounded-xl text-[10px] font-black transition-all ${currentPage === i + 1 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-400'}`}>{i + 1}</button>
                                         ))}
                                     </div>
-                                    <button 
-                                        disabled={currentPage === totalPages}
-                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                        className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30 hover:text-primary transition-all active:scale-95"
-                                    >
-                                        Next
-                                    </button>
+                                    <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} className="p-2 px-4 bg-slate-50 dark:bg-gray-800 rounded-xl text-[10px] font-black uppercase text-slate-400 disabled:opacity-30">Next</button>
                                 </div>
                             )}
                         </>
                     ) : (
-                        <EmptyState 
-                            icon={<CustomersIcon />} 
-                            title="Zero clients found" 
-                            description={searchTerm ? "Try searching for another identity." : "Start by enrolling your first customer to the terminal database."}
-                            action={searchTerm ? undefined : { label: "Enroll Identity", onClick: handleOpenAddModal }}
-                        />
+                        <EmptyState icon={<CustomersIcon />} title="Zero clients found" description={searchTerm ? "Try searching for another identity." : "Start by enrolling your first customer to the terminal database."} action={searchTerm ? undefined : { label: "Enroll Identity", onClick: handleOpenAddModal }} />
                     )}
                 </div>
             </div>
 
-            <button
-                onClick={handleOpenAddModal}
-                disabled={!trialLimits.canAddCustomer}
-                className="fixed bottom-24 right-6 lg:bottom-12 lg:right-12 bg-primary text-white rounded-[2rem] p-6 shadow-2xl shadow-primary/30 hover:bg-blue-700 transition-all hover:scale-110 active:scale-95 z-[40] disabled:bg-slate-300 flex items-center justify-center group"
-            >
+            <button onClick={handleOpenAddModal} disabled={!trialLimits.canAddCustomer} className="fixed bottom-24 right-6 lg:bottom-12 lg:right-12 bg-primary text-white rounded-[2rem] p-6 shadow-2xl shadow-primary/30 hover:bg-blue-700 transition-all hover:scale-110 active:scale-95 z-[40] disabled:bg-slate-300 flex items-center justify-center group">
                 <PlusIcon className="w-7 h-7" />
                 <span className="max-w-0 overflow-hidden group-hover:max-w-xs group-hover:ml-3 transition-all duration-500 text-[11px] font-black uppercase tracking-widest whitespace-nowrap">Enroll New Client</span>
             </button>
 
-            <CustomerModal isOpen={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} onSave={handleSaveCustomer} customerToEdit={editingCustomer} />
+            <CustomerModal isOpen={isCustomerModalOpen} onClose={() => setIsCustomerModalOpen(false)} onSave={onSave} customerToEdit={editingCustomer} />
             <CustomerDetailModal customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} receiptSettings={receiptSettings} />
         </div>
     );

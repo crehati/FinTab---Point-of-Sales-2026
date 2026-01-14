@@ -38,19 +38,10 @@ import Counter from './components/Counter';
 import Proforma from './components/Proforma';
 import Commission from './components/Commission';
 import Expenses from './components/Expenses';
-import ExpenseRequestPage from './components/ExpenseRequestPage';
 import MyProfile from './components/MyProfile';
 import Settings from './components/Settings';
 import SelectBusiness from './components/SelectBusiness';
 import Transactions from './components/Transactions';
-import InvestorPage from './components/Investor';
-import CashCountPage from './components/CashCount';
-import BankAccountsPage from './components/BankAccounts';
-import GoodsCostingPage from './components/GoodsCosting';
-import GoodsReceivingPage from './components/GoodsReceiving';
-import WeeklyInventoryCheckPage from './components/WeeklyInventoryCheck';
-import AlertsPage from './components/AlertsPage';
-import PublicStorefront from './components/PublicStorefront';
 import InvitePage from './components/InvitePage';
 import NotificationCenter from './components/NotificationCenter';
 
@@ -144,7 +135,6 @@ const App = () => {
     const [authUserId, setAuthUserId] = useState<string | null>(null);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeBusinessId, setActiveBusinessId] = useState<string | null>(localStorage.getItem('fintab_active_business_id'));
-    const [membershipsCount, setMembershipsCount] = useState<number | null>(null);
     const [isAuthLoading, setIsAuthLoading] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [language, setLanguage] = useState('en');
@@ -152,6 +142,7 @@ const App = () => {
 
     const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
     const [products, setProducts] = useState<Product[]>([]);
+    const [users, setUsers] = useState<User[]>([]); // LOCAL BUSINESS PERSONNEL
     const [sales, setSales] = useState<Sale[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -160,37 +151,39 @@ const App = () => {
     useEffect(() => {
         let authListener = null;
         const syncIdentity = async (session) => {
-            if (!session?.user) { setCurrentUser(null); setMembershipsCount(0); setIsAuthLoading(false); return; }
+            if (!session?.user) { setCurrentUser(null); setIsAuthLoading(false); return; }
             try {
                 await supabase.wait();
-                const { data: mships } = await supabase.from('memberships').select('business_id, role, initial_investment').eq('user_id', session.user.id);
-                const count = mships?.length || 0;
-                setMembershipsCount(count);
+                // STRICT IDENTITY FETCH: Get ONLY membership for this active business
+                const { data: mships } = await supabase
+                    .from('memberships')
+                    .select('business_id, role, initial_investment')
+                    .eq('user_id', session.user.id);
                 
                 const activeMship = mships?.find(m => m.business_id === activeBusinessId) || mships?.[0];
 
                 if (activeMship) {
+                    // Update active business ID if we defaulted to the first membership
+                    if (!activeBusinessId || activeBusinessId !== activeMship.business_id) {
+                        setActiveBusinessId(activeMship.business_id);
+                        localStorage.setItem('fintab_active_business_id', activeMship.business_id);
+                    }
+
                     setCurrentUser({ 
-                        id: session.user.id, email: session.user.email || '', 
+                        id: session.user.id, 
+                        email: session.user.email || '', 
                         name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0], 
                         avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`, 
-                        role: activeMship.role, // STRICT ROLE MAPPING
+                        role: activeMship.role, // ROLE IS STRICTLY CONTEXTUAL
                         initialInvestment: activeMship.initial_investment || 0,
                         status: 'Active', 
                         type: 'commission'
                     });
-                } else if (count > 0) {
-                    // Force selecting the first business if no active one is selected but memberships exist
-                    const firstId = mships[0].business_id;
-                    setActiveBusinessId(firstId);
-                    localStorage.setItem('fintab_active_business_id', firstId);
                 } else {
-                    // No memberships at all - likely needs onboarding
                     setCurrentUser(null);
                 }
             } catch (err) { 
                 console.error("Identity Sync Failure:", err); 
-                setMembershipsCount(0); 
             } finally { 
                 setIsAuthLoading(false); 
             }
@@ -205,7 +198,7 @@ const App = () => {
             const { data } = supabase.auth.onAuthStateChange((event, session) => {
                 setAuthUserId(session?.user?.id || null);
                 if (event === 'SIGNED_OUT') {
-                    setCurrentUser(null); setActiveBusinessId(null); setMembershipsCount(0);
+                    setCurrentUser(null); setActiveBusinessId(null);
                     localStorage.removeItem('fintab_active_business_id');
                 } else if (session) { syncIdentity(session); }
             });
@@ -215,49 +208,44 @@ const App = () => {
         return () => { if (authListener?.subscription) authListener.subscription.unsubscribe(); };
     }, [activeBusinessId]);
 
+    // FETCH BUSINESS SPECIFIC DATA
     useEffect(() => {
         if (!activeBusinessId || !authUserId) return;
         const fetch = async () => {
             try {
                 await supabase.wait();
+                // 1. Fetch Products
                 const { data: prods } = await supabase.from('products').select('*').eq('business_id', activeBusinessId);
                 if (prods) setProducts(prods.map(mapProductFromDb));
+                
+                // 2. Fetch Business Profile
                 const { data: biz } = await supabase.from('businesses').select('*').eq('id', activeBusinessId).single();
                 if (biz) setBusinessProfile({ businessName: biz.name, id: biz.id, ...biz.profile });
+
+                // 3. Fetch ONLY members of THIS business (Personnel Isolation)
+                const { data: members } = await supabase
+                    .from('memberships')
+                    .select('user_id, role, initial_investment')
+                    .eq('business_id', activeBusinessId);
+                
+                if (members) {
+                    // Note: In a real app, you'd join with a profiles table. 
+                    // For now, mapping IDs as placeholder identities until profiles are standard.
+                    setUsers(members.map(m => ({
+                        id: m.user_id,
+                        name: 'Unit ' + m.user_id.slice(-4),
+                        role: m.role,
+                        avatarUrl: `https://ui-avatars.com/api/?name=${m.user_id.slice(-4)}`,
+                        email: '...',
+                        status: 'Active',
+                        type: 'commission',
+                        initialInvestment: m.initial_investment
+                    })));
+                }
             } catch (err) { console.error(err); }
         };
         fetch();
     }, [activeBusinessId, authUserId]);
-
-    const handleUpdateCurrentUserProfile = async (profileData: any) => {
-        if (!currentUser) return; 
-        try {
-            await supabase.wait();
-            const { error: authError } = await supabase.auth.updateUser({
-                data: { full_name: profileData.name, avatar_url: profileData.avatarUrl }
-            });
-            if (authError) throw authError;
-
-            if (activeBusinessId && profileData.initialInvestment !== undefined) {
-                const { error: mshipError } = await supabase
-                    .from('memberships')
-                    .update({ initial_investment: parseFloat(profileData.initialInvestment) || 0 })
-                    .eq('user_id', currentUser.id)
-                    .eq('business_id', activeBusinessId);
-                if (mshipError) throw mshipError;
-            }
-
-            setCurrentUser(prev => prev ? ({
-                ...prev,
-                name: profileData.name || prev.name,
-                avatarUrl: profileData.avatarUrl || prev.avatarUrl,
-                initialInvestment: profileData.initialInvestment !== undefined ? parseFloat(profileData.initialInvestment) : prev.initialInvestment
-            }) : null);
-        } catch (err) {
-            console.error("Digital Sync Protocol Failure:", err);
-            alert("Digital Sync Error: Profile could not be synchronized.");
-        }
-    };
 
     const t = (k) => translations[language]?.[k] || k;
 
@@ -267,7 +255,6 @@ const App = () => {
         <div className={`h-screen flex flex-col ${theme === 'dark' ? 'dark' : ''} bg-slate-50 dark:bg-gray-950 overflow-hidden`}>
             <Routes>
                 <Route path="/invite" element={<InvitePage currentUser={null} />} />
-                <Route path="/public-shopfront/:businessId" element={<PublicStorefront />} />
                 <Route path="*" element={<Login onEnterDemo={() => {}} />} />
             </Routes>
         </div>
@@ -287,16 +274,16 @@ const App = () => {
                     <div id="app-main-viewport" className="flex-1 overflow-y-auto custom-scrollbar relative bg-slate-50/50 dark:bg-gray-950/50">
                         <main className="p-4 md:p-10 min-h-full max-w-[1600px] mx-auto">
                             <Routes>
-                                <Route path="dashboard" element={<Dashboard products={products} customers={[]} users={[]} sales={sales} expenses={expenses} deposits={[]} expenseRequests={[]} anomalyAlerts={[]} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} />} />
+                                <Route path="dashboard" element={<Dashboard products={products} customers={[]} users={users} sales={sales} expenses={expenses} deposits={[]} expenseRequests={[]} anomalyAlerts={[]} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} onDismissAnomaly={() => {}} onMarkAnomalyRead={() => {}} />} />
                                 <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
-                                <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} />} />
                                 <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
-                                <Route path="counter" element={<Counter cart={cart} customers={[]} users={[]} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={[]} />} />
-                                <Route path="receipts" element={<Receipts sales={sales} customers={[]} users={[]} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={() => {}} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
-                                <Route path="users" element={<Users users={[]} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
-                                <Route path="investors" element={<InvestorPage users={[]} netProfit={0} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} />} />
-                                <Route path="profile" element={<MyProfile currentUser={currentUser} users={[]} sales={sales} expenses={expenses} customers={[]} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} />} />
-                                <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={[]} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} />} />
+                                <Route path="counter" element={<Counter cart={cart} customers={[]} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={[]} />} />
+                                <Route path="receipts" element={<Receipts sales={sales} customers={[]} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={() => {}} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
+                                <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
+                                <Route path="investors" element={<InvestorPage users={users} netProfit={0} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} />} />
+                                <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={[]} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} />} />
+                                <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} />} />
                                 <Route path="invite" element={<InvitePage currentUser={currentUser} />} />
                                 <Route path="*" element={<Navigate to="dashboard" replace />} />
                             </Routes>

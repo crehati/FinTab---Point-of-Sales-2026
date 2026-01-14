@@ -142,7 +142,7 @@ const App = () => {
                 client.from('customers').select('*').eq('business_id', activeBusinessId).order('name'),
                 client.from('sales').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }),
                 client.from('expenses').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }),
-                client.from('bank_accounts').select('*').eq('business_id', activeBusinessId),
+                client.from('bank_accounts').select('*').eq('business_id', activeBusinessId).order('bank_name'),
                 client.from('bank_transactions').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }),
                 client.from('anomaly_alerts').select('*').eq('business_id', activeBusinessId).eq('is_dismissed', false),
                 client.from('businesses').select('*').eq('id', activeBusinessId).single(),
@@ -155,13 +155,38 @@ const App = () => {
                 costPrice: parseFloat(p.cost_price), 
                 stock: parseInt(p.stock), 
                 imageUrl: p.image_url,
-                stockHistory: p.stock_history || [] 
+                stockHistory: p.stock_history || [],
+                commissionPercentage: p.commission_percentage
             })));
             if (custs.data) setCustomers(custs.data);
-            if (sls.data) setSales(sls.data);
-            if (exps.data) setExpenses(exps.data);
-            if (banks.data) setBankAccounts(banks.data);
-            if (bankTx.data) setBankTransactions(bankTx.data);
+            if (sls.data) setSales(sls.data.map(s => ({
+                ...s,
+                customerId: s.customer_id,
+                userId: s.user_id,
+                taxRate: s.tax_rate,
+                paymentMethod: s.payment_method,
+                cashReceived: s.cash_received,
+                bankReceiptNumber: s.bank_receipt_number,
+                bankName: s.bank_name,
+                bankAccountId: s.bank_account_id
+            })));
+            if (exps.data) setExpenses(exps.data.map(e => ({
+                ...e,
+                paymentSource: e.payment_source,
+                bankAccountId: e.bank_account_id
+            })));
+            if (banks.data) setBankAccounts(banks.data.map(b => ({ 
+                ...b, 
+                bankName: b.bank_name, 
+                accountName: b.account_name, 
+                accountNumber: b.account_number,
+                balance: parseFloat(b.balance)
+            })));
+            if (bankTx.data) setBankTransactions(bankTx.data.map(t => ({ 
+                ...t, 
+                bankAccountId: t.bank_account_id,
+                userId: t.user_id
+            })));
             if (alerts.data) setAnomalyAlerts(alerts.data);
             if (biz.data) setBusinessProfile({ businessName: biz.data.name, id: biz.data.id, ...biz.data.profile });
             if (members.data) setUsers(members.data.map(m => ({ id: m.user_id, name: 'Unit ' + m.user_id.slice(-4), role: m.role, avatarUrl: `https://ui-avatars.com/api/?name=${m.user_id.slice(-4)}`, email: '...', status: 'Active', initialInvestment: m.initial_investment })));
@@ -328,12 +353,51 @@ const App = () => {
                                     <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={unifiedLedger} />} />
                                     <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={handleSaveProduct} onSaveStockAdjustment={handleSaveStockAdjustment} onDeleteProduct={async (id) => { const client = await supabase.wait(); await client.from('products').delete().eq('id', id); await fetchLedger(); }} />} />
-                                    <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onProcessSale={async (s) => { 
+                                    <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onSaveProforma={async (s) => {
+                                        const client = await supabase.wait();
+                                        const dbSale = {
+                                            business_id: activeBusinessId,
+                                            customer_id: s.customerId,
+                                            user_id: s.userId,
+                                            date: s.date,
+                                            items: s.items,
+                                            subtotal: s.subtotal,
+                                            tax: s.tax,
+                                            discount: s.discount,
+                                            total: s.total,
+                                            status: 'proforma',
+                                            tax_rate: s.taxRate
+                                        };
+                                        const { error } = await client.from('sales').insert(dbSale);
+                                        if (error) { console.error("Proforma Error:", error.message); alert("Proforma Sync Error: " + error.message); }
+                                        else { alert("Proforma quote committed successfully."); }
+                                        await fetchLedger();
+                                    }} onProcessSale={async (s) => { 
                                         const client = await supabase.wait(); 
-                                        const { data: saleData, error: saleError } = await client.from('sales').insert({...s, id: undefined, business_id: activeBusinessId}).select().single(); 
-                                        if (saleError) { console.error("Sale Commit Failure", saleError.message); alert("Protocol Error: Sale could not be persisted."); return; }
+                                        const dbSale = {
+                                            business_id: activeBusinessId,
+                                            customer_id: s.customerId,
+                                            user_id: s.userId,
+                                            date: s.date,
+                                            items: s.items,
+                                            subtotal: s.subtotal,
+                                            tax: s.tax,
+                                            discount: s.discount,
+                                            total: s.total,
+                                            payment_method: s.paymentMethod,
+                                            tax_rate: s.taxRate,
+                                            status: s.status,
+                                            cash_received: s.cashReceived,
+                                            change: s.change,
+                                            bank_receipt_number: s.bankReceiptNumber,
+                                            bank_name: s.bankName,
+                                            bank_account_id: s.bankAccountId
+                                        };
+
+                                        const { data: saleData, error: saleError } = await client.from('sales').insert(dbSale).select().single(); 
+                                        if (saleError) { console.error("Sale Commit Failure", saleError.message); alert("Protocol Error: Sale could not be persisted. " + saleError.message); return; }
                                         
-                                        // Post-Sale Inventory Protocol: Deduct Units
+                                        // 1. Post-Sale Inventory Protocol: Deduct Units
                                         for (const item of s.items) {
                                             const pid = item.product.id;
                                             const { data: current } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
@@ -350,6 +414,23 @@ const App = () => {
                                                 await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
                                             }
                                         }
+
+                                        // 2. Bank Ledger Synchronization (If bank receipt)
+                                        if (s.status === 'pending_bank_verification' && s.bankAccountId) {
+                                            const { data: bankNode } = await client.from('bank_accounts').select('balance').eq('id', s.bankAccountId).single();
+                                            if (bankNode) {
+                                                await client.from('bank_accounts').update({ balance: parseFloat(bankNode.balance) + s.total }).eq('id', s.bankAccountId);
+                                                await client.from('bank_transactions').insert({
+                                                    business_id: activeBusinessId,
+                                                    bank_account_id: s.bankAccountId,
+                                                    type: 'sale_credit',
+                                                    amount: s.total,
+                                                    description: `POS Sale Receipt #${saleData.id.slice(-6).toUpperCase()}`,
+                                                    user_id: currentUser.id
+                                                });
+                                            }
+                                        }
+
                                         await fetchLedger(); 
                                     }} onAddCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} />} />
                                     

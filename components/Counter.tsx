@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useMemo, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
@@ -22,6 +23,7 @@ interface CounterProps {
     users: User[];
     onUpdateCartItem: (product: Product, variant: ProductVariant | undefined, quantity: number) => void;
     onProcessSale: (sale: Sale) => void;
+    onSaveProforma: (sale: Sale) => void;
     onClearCart: () => void;
     receiptSettings: ReceiptSettingsData;
     t: (key: string) => string;
@@ -44,7 +46,7 @@ const getEffectivePrice = (product: Product, quantity: number): number => {
 };
 
 const CounterContent: React.FC<CounterProps> = (props) => {
-    const { cart, customers, users, onUpdateCartItem, onProcessSale, onClearCart, receiptSettings, t, currentUser, businessSettings, printerSettings, isTrialExpired, permissions, bankAccounts } = props;
+    const { cart, customers, users, onUpdateCartItem, onProcessSale, onSaveProforma, onClearCart, receiptSettings, t, currentUser, businessSettings, printerSettings, isTrialExpired, permissions, bankAccounts } = props;
     
     const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'pending_confirmation' | 'processing' | 'completed' | 'error'>('idle');
     const [completedSale, setCompletedSale] = useState<Sale | null>(null);
@@ -69,8 +71,6 @@ const CounterContent: React.FC<CounterProps> = (props) => {
 
     const canApplyDiscount = hasAccess(currentUser, 'SALES', 'APPLY_DISCOUNT', permissions);
     const canCreateSale = hasAccess(currentUser, 'SALES', 'CREATE_SALE', permissions);
-    const canUseBank = hasAccess(currentUser, 'SALES', 'BANK_TRANSFER', permissions);
-    const canUseCash = hasAccess(currentUser, 'SALES', 'CASH_SALE', permissions);
 
     const financialData = useMemo(() => {
         const rawSubtotal = (cart || []).reduce((sum, item) => {
@@ -101,6 +101,22 @@ const CounterContent: React.FC<CounterProps> = (props) => {
         setCheckoutStatus('idle');
         setCommitSnapshot(null);
     }, [onClearCart]);
+
+    const handleSaveAsProforma = () => {
+        if (!cart || cart.length === 0) { setValidationError("Proforma Error: Basket is empty."); return; }
+        if (!selectedCustomerId) { setValidationError("Identity verification required: select a client."); return; }
+        if (!selectedUserId) { setValidationError("Processing entity required: select a staff member."); return; }
+        
+        const { subtotal, numericDiscount, total, numericTaxRate, items } = financialData;
+        const sale: Sale = {
+            id: `pro-${Date.now()}`, date: new Date().toISOString(), items: JSON.parse(JSON.stringify(cart)), customerId: String(selectedCustomerId), userId: String(selectedUserId),
+            subtotal: Number(subtotal), tax: Number(total - (subtotal - numericDiscount)), discount: Number(numericDiscount),
+            total: Number(total), status: 'proforma', taxRate: Number(numericTaxRate)
+        };
+        onSaveProforma(sale);
+        alert("Proforma authorized and synchronized to registry.");
+        resetCounter();
+    };
 
     const handleCheckout = () => {
         if (!canCreateSale) { setValidationError("Unauthorized Protocol: Access to 'Create Sale' denied."); return; }
@@ -148,7 +164,10 @@ const CounterContent: React.FC<CounterProps> = (props) => {
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Terminal Basket Entry</p>
                     </div>
                     {cart.length > 0 && (
-                        <button onClick={() => setIsClearConfirmOpen(true)} className="px-6 py-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-rose-100 transition-all active:scale-95">Reset Grid</button>
+                        <div className="flex gap-3">
+                            <button onClick={handleSaveAsProforma} className="px-6 py-2.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-blue-100 transition-all active:scale-95">Save Quote</button>
+                            <button onClick={() => setIsClearConfirmOpen(true)} className="px-6 py-2.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-rose-100 transition-all active:scale-95">Reset Grid</button>
+                        </div>
                     )}
                 </header>
 
@@ -226,9 +245,11 @@ const CounterContent: React.FC<CounterProps> = (props) => {
                                 <button onClick={() => setIsUserSelectModalOpen(true)} className="flex-1 p-5 border-2 border-slate-100 dark:border-gray-800 rounded-2xl bg-white dark:bg-gray-900 text-slate-900 dark:text-white font-bold uppercase text-[10px] tracking-widest hover:border-primary/40 transition-all truncate text-left">{selectedUser ? selectedUser.name : 'Verify Staff'}</button>
                                 <button onClick={() => setIsPaymentMethodSelectModalOpen(true)} className="flex-1 p-5 border-2 border-slate-100 dark:border-gray-800 rounded-2xl bg-white dark:bg-gray-900 text-slate-900 dark:text-white font-bold uppercase text-[10px] tracking-widest hover:border-primary/40 transition-all truncate text-left">{paymentMethod ? paymentMethod : 'Settlement'}</button>
                             </div>
-                            <button onClick={handleCheckout} className="btn-base btn-primary w-full py-6 text-base" disabled={checkoutStatus === 'processing' || !canCreateSale}>
-                                {checkoutStatus === 'processing' ? 'Processing Node...' : 'Authorize Transaction'}
-                            </button>
+                            <div className="flex flex-col sm:flex-row gap-4">
+                                <button onClick={handleCheckout} className="btn-base btn-primary flex-1 py-6 text-base" disabled={checkoutStatus === 'processing' || !canCreateSale}>
+                                    {checkoutStatus === 'processing' ? 'Processing Node...' : 'Authorize Transaction'}
+                                </button>
+                            </div>
                         </div>
                     </footer>
                 )}

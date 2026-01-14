@@ -5,9 +5,10 @@ import type { BankAccount, BankTransaction, User, ReceiptSettingsData } from '..
 import Card from './Card';
 import ModalShell from './ModalShell';
 import EmptyState from './EmptyState';
-import { BankIcon, PlusIcon, TransactionIcon, WarningIcon } from '../constants';
+import { BankIcon, PlusIcon, TransactionIcon, WarningIcon, DeleteIcon } from '../constants';
 import { formatCurrency, formatAbbreviatedNumber } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import ConfirmationModal from './ConfirmationModal';
 
 interface BankAccountsPageProps {
     bankAccounts: BankAccount[];
@@ -27,6 +28,7 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
     const [selectedAccountForLedger, setSelectedAccountForLedger] = useState<BankAccount | null>(null);
+    const [accountToDelete, setAccountToDelete] = useState<BankAccount | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
 
     const cs = receiptSettings.currencySymbol;
@@ -62,12 +64,29 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
 
             if (error) throw error;
             
-            setIsAddModalOpen(false);
+            setIsAddAccountModalOpen(false);
             setNewAccount({ bankName: '', accountName: '', accountNumber: '' });
-            // Re-fetch via parent state management or direct fetch
+            alert("Bank node enrolled successfully.");
             window.location.reload(); 
         } catch (err) {
-            alert("Node Creation Error: Could not enroll bank in cloud registry.");
+            alert("Node Creation Error: " + err.message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!accountToDelete) return;
+        setIsProcessing(true);
+        try {
+            const client = await supabase.wait();
+            const { error } = await client.from('bank_accounts').delete().eq('id', accountToDelete.id);
+            if (error) throw error;
+            setAccountToDelete(null);
+            alert("Bank node decommissioned.");
+            window.location.reload();
+        } catch (err) {
+            alert("Decommission Error: " + err.message);
         } finally {
             setIsProcessing(false);
         }
@@ -102,9 +121,10 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
 
             setIsDepositModalOpen(false);
             setDepositData({ accountId: '', amount: '', description: '' });
+            alert("Manual deposit verified.");
             window.location.reload();
         } catch (err) {
-            alert("Liquidity Shift Error: Persistence failure.");
+            alert("Liquidity Shift Error: " + err.message);
         } finally {
             setIsProcessing(false);
         }
@@ -156,9 +176,10 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
 
             setIsTransferModalOpen(false);
             setTransferData({ fromId: '', toId: '', amount: '' });
+            alert("Grid rebalance authorized.");
             window.location.reload();
         } catch (err) {
-            alert("Grid Rebalance Failure: Node sync interrupted.");
+            alert("Grid Rebalance Failure: " + err.message);
         } finally {
             setIsProcessing(false);
         }
@@ -166,10 +187,10 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
 
     const filteredTransactions = useMemo(() => {
         if (!selectedAccountForLedger) return [];
-        return bankTransactions.filter(t => t.bank_account_id === selectedAccountForLedger.id);
+        return bankTransactions.filter(t => t.bankAccountId === selectedAccountForLedger.id);
     }, [bankTransactions, selectedAccountForLedger]);
 
-    const totalSystemLiquidity = useMemo(() => bankAccounts.reduce((sum, b) => sum + b.balance, 0), [bankAccounts]);
+    const totalSystemLiquidity = useMemo(() => bankAccounts.reduce((sum, b) => sum + (b.balance || 0), 0), [bankAccounts]);
 
     return (
         <div className="max-w-6xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
@@ -202,27 +223,35 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                     {bankAccounts.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                             {bankAccounts.map(account => (
-                                <button 
-                                    key={account.id}
-                                    onClick={() => setSelectedAccountForLedger(account)}
-                                    className={`text-left p-8 rounded-[3rem] border-2 transition-all group relative overflow-hidden ${selectedAccountForLedger?.id === account.id ? 'bg-primary/5 border-primary shadow-xl' : 'bg-white dark:bg-gray-900 border-slate-50 dark:border-gray-800 hover:border-primary/20'}`}
-                                >
-                                    <div className="flex justify-between items-start mb-10">
-                                        <div className={`p-4 rounded-2xl ${selectedAccountForLedger?.id === account.id ? 'bg-primary text-white' : 'bg-slate-50 dark:bg-gray-800 text-slate-400'} transition-colors`}>
-                                            <BankIcon className="w-8 h-8" />
+                                <div key={account.id} className="relative group">
+                                    <button 
+                                        onClick={() => setSelectedAccountForLedger(account)}
+                                        className={`w-full text-left p-8 rounded-[3rem] border-2 transition-all relative overflow-hidden ${selectedAccountForLedger?.id === account.id ? 'bg-primary/5 border-primary shadow-xl' : 'bg-white dark:bg-gray-900 border-slate-50 dark:border-gray-800 hover:border-primary/20'}`}
+                                    >
+                                        <div className="flex justify-between items-start mb-10">
+                                            <div className={`p-4 rounded-2xl ${selectedAccountForLedger?.id === account.id ? 'bg-primary text-white' : 'bg-slate-50 dark:bg-gray-800 text-slate-400'} transition-colors`}>
+                                                <BankIcon className="w-8 h-8" />
+                                            </div>
+                                            <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg border border-emerald-100">Live Node</span>
                                         </div>
-                                        <span className="bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg border border-emerald-100">Live Node</span>
-                                    </div>
-                                    <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate">{account.bankName}</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate">{account.accountName}</p>
-                                    <div className="mt-12 pt-8 border-t border-slate-50 dark:border-gray-800 flex justify-between items-end">
-                                        <div>
-                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Available Yield</p>
-                                            <p className={`text-3xl font-black tabular-nums tracking-tighter ${selectedAccountForLedger?.id === account.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>{cs}{account.balance.toLocaleString()}</p>
+                                        <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate">{account.bankName}</h3>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate">{account.accountName}</p>
+                                        <div className="mt-12 pt-8 border-t border-slate-50 dark:border-gray-800 flex justify-between items-end">
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Available Yield</p>
+                                                <p className={`text-3xl font-black tabular-nums tracking-tighter ${selectedAccountForLedger?.id === account.id ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>{cs}{(account.balance || 0).toLocaleString()}</p>
+                                            </div>
+                                            <div className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] group-hover:text-primary transition-colors">Inspect Ledger →</div>
                                         </div>
-                                        <div className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em] group-hover:text-primary transition-colors">Inspect Ledger →</div>
-                                    </div>
-                                </button>
+                                    </button>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); setAccountToDelete(account); }}
+                                        className="absolute top-4 right-4 p-2 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+                                        title="Decommission Node"
+                                    >
+                                        <DeleteIcon className="w-5 h-5" />
+                                    </button>
+                                </div>
                             ))}
                         </div>
                     ) : (
@@ -292,6 +321,18 @@ const BankAccountsPage: React.FC<BankAccountsPageProps> = ({
                     <button onClick={handleAddAccount} disabled={isProcessing} className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Authorize Node</button>
                 </div>
             </ModalShell>
+
+            <ConfirmationModal 
+                isOpen={!!accountToDelete} 
+                onClose={() => setAccountToDelete(null)} 
+                onConfirm={handleDeleteAccount}
+                title="Decommission Bank Node"
+                message={`Authorize the permanent removal of ${accountToDelete?.bankName} - ${accountToDelete?.accountName}. Associated ledger entries will remain in the transaction grid.`}
+                variant="danger"
+                isIrreversible
+                confirmLabel="Authorize Decommission"
+                isProcessing={isProcessing}
+            />
 
             {/* Manual Deposit Modal */}
             <ModalShell isOpen={isDepositModalOpen} onClose={() => setIsDepositModalOpen(false)} title="Manual Fund Injection" description="Internal treasury balance adjustment">

@@ -279,9 +279,9 @@ const Settings: React.FC<SettingsProps> = (props) => {
                                     <div className="p-6 bg-white dark:bg-gray-950 rounded-[1.5rem] border border-amber-100">
                                         <p className="text-[10px] font-black uppercase text-slate-400 mb-4">Phase 1: Get the Key (On GitHub.com)</p>
                                         <div className="space-y-2">
-                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">1. Click your Profile Picture > <b>Settings</b></p>
-                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">2. Scroll to bottom > <b>Developer Settings</b></p>
-                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">3. <b>Personal Access Tokens</b> > <b>Tokens (classic)</b></p>
+                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">1. Click your Profile Picture &gt; <b>Settings</b></p>
+                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">2. Scroll to bottom &gt; <b>Developer Settings</b></p>
+                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">3. <b>Personal Access Tokens</b> &gt; <b>Tokens (classic)</b></p>
                                             <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">4. Generate New Token, name it "Editor", check <b>'repo'</b>, and COPY it.</p>
                                         </div>
                                     </div>

@@ -27,6 +27,13 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
     const [fullName, setFullName] = useState('');
     const navigate = useNavigate();
 
+    // Protocol: Mode Switcher - Clear sensitive inputs on mode change
+    useEffect(() => {
+        setError(null);
+        setInfoMessage(null);
+        setPassword('');
+    }, [authMode]);
+
     // Protocol: Recovery Interceptor
     // Listens for the PASSWORD_RECOVERY event from Supabase when a user enters via email link
     useEffect(() => {
@@ -74,13 +81,13 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                     redirectTo: `${window.location.origin}/#/login`,
                 });
                 if (resetError) throw resetError;
-                setInfoMessage("Secure reset link dispatched. Check your email.");
+                setInfoMessage("Secure reset link dispatched. Check your email to proceed with identity recovery.");
             }
             else if (authMode === 'update_password') {
                 const { error: updateError } = await client.auth.updateUser({ password });
                 if (updateError) throw updateError;
-                setInfoMessage("Credentials updated successfully. Redirecting to terminal...");
-                setTimeout(() => navigate('/dashboard'), 2000);
+                setInfoMessage("Credentials updated successfully. Authorized redirect initiated...");
+                setTimeout(() => navigate('/dashboard'), 1500);
             }
         } catch (err) {
             setError(err.message || "Authentication protocol error.");

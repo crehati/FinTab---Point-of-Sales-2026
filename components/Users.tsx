@@ -56,11 +56,9 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
         // 2. Check for duplicate pending invite
         const existingInvite = pendingInvites.find(inv => inv.invited_email.toLowerCase() === normalizedEmail);
         if (existingInvite) {
-            if (confirm(`Identity ${normalizedEmail} already has a pending invitation. Re-issue current token link?`)) {
-                const baseUrl = window.location.origin + window.location.pathname;
-                setInviteLinkToShow(`${baseUrl}#/invite?token=${existingInvite.token}`);
-                setIsUserModalOpen(false);
-            }
+            const baseUrl = window.location.origin + window.location.pathname;
+            setInviteLinkToShow(`${baseUrl}#/invite?token=${existingInvite.token}`);
+            setIsUserModalOpen(false);
             return;
         }
 
@@ -93,7 +91,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
     };
 
     const revokeInvite = async (id: string) => {
-        if (!confirm("Authorize decommissioning of this invitation? The token will be immediately voided.")) return;
+        if (!confirm("Confirm: Permanently revoke this invitation link?")) return;
         setIsProcessing(true);
         try {
             const client = await supabase.wait();
@@ -101,7 +99,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             
             if (error) {
                 if (error.message.includes("permission denied")) {
-                    throw new Error("Authorization Denied: Run the Supabase SQL update to grant revoke permissions to Owners.");
+                    throw new Error("Authorization Denied: Run the Supabase SQL update (Owners can delete invitations) to fix this.");
                 }
                 throw error;
             }
@@ -128,7 +126,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             if (error) throw error;
             
             setUserToTerminate(null);
-            alert(`Identity ${userToTerminate.name} has been removed from this business node.`);
+            alert(`Identity ${userToTerminate.name} has been removed.`);
             window.location.reload(); 
         } catch (err) {
             alert("Termination protocol failed: " + err.message);
@@ -136,6 +134,15 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             setIsProcessing(false);
         }
     };
+
+    // UI Helper: Group invites by email to prevent the "multiple card" look for 1 person
+    const groupedInvites = useMemo(() => {
+        const map = new Map();
+        pendingInvites.forEach(inv => {
+            if (!map.has(inv.invited_email)) map.set(inv.invited_email, inv);
+        });
+        return Array.from(map.values());
+    }, [pendingInvites]);
 
     return (
         <div className="space-y-12 font-sans pb-24 lg:pb-8">
@@ -205,28 +212,27 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                         </div>
                     </div>
 
-                    {pendingInvites.length > 0 && (
+                    {groupedInvites.length > 0 && (
                         <div className="animate-fade-in pt-8 border-t dark:border-gray-800">
-                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-8 px-4">Pending Initializations ({pendingInvites.length})</h3>
+                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-8 px-4">Pending Initializations</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-4">
-                                {pendingInvites.map(inv => (
-                                    <div key={inv.id} className="p-8 bg-slate-50 dark:bg-gray-800 rounded-[2.5rem] border border-slate-100 dark:border-gray-700 relative group shadow-sm hover:shadow-xl transition-all">
+                                {groupedInvites.map(inv => (
+                                    <div key={inv.id} className="p-8 bg-amber-50/20 dark:bg-amber-900/10 rounded-[2.5rem] border border-amber-100 dark:border-amber-900/30 relative group shadow-sm hover:shadow-xl transition-all">
                                         <div className="flex justify-between items-start mb-6">
                                             <div className="w-12 h-12 rounded-2xl bg-white dark:bg-gray-700 flex items-center justify-center border border-amber-100 shadow-sm">
                                                 <StaffIcon className="w-6 h-6 text-amber-500" />
                                             </div>
-                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex gap-2">
                                                 <button onClick={() => setInviteLinkToShow(`${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-primary transition-all border border-slate-100 shadow-sm" title="Re-issue Link"><LinkIcon className="w-4 h-4" /></button>
-                                                <button onClick={() => revokeInvite(inv.id)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm" title="Decommission Invite"><CloseIcon className="w-4 h-4" /></button>
+                                                <button onClick={() => revokeInvite(inv.id)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm" title="Revoke Invite"><CloseIcon className="w-4 h-4" /></button>
                                             </div>
                                         </div>
                                         <div className="space-y-1">
                                             <p className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate">{inv.invited_email}</p>
-                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Target Role: {inv.role}</p>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{inv.role} Authorization</p>
                                         </div>
-                                        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-gray-700 flex justify-between items-center">
+                                        <div className="mt-8 pt-6 border-t border-amber-100 dark:border-gray-700 flex justify-between items-center">
                                             <span className="text-[8px] font-black uppercase text-amber-500 tracking-widest animate-pulse">Awaiting Verification</span>
-                                            <p className="text-[8px] font-bold text-slate-300 uppercase">{new Date(inv.created_at).toLocaleDateString()}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -238,17 +244,17 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
 
             <UserModal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} onSave={handleSaveUser} />
 
-            <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Invitation Link Issued" description="Share this secure link with the staff node.">
+            <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Invitation Link" description="Share this link with the invitee.">
                 <div className="space-y-8 py-4">
                     <div className="p-8 bg-slate-900 rounded-[2rem] border border-white/5 shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl"></div>
-                        <p className="text-[9px] font-black text-primary uppercase tracking-[0.4em] mb-4">Secure Authorization URI</p>
+                        <p className="text-[9px] font-black text-primary uppercase tracking-[0.4em] mb-4">Secure URI</p>
                         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 break-all font-mono text-[11px] text-white/90 select-all leading-relaxed shadow-inner">
                             {inviteLinkToShow}
                         </div>
                     </div>
                     <button 
-                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Link synchronized to clipboard.'); }} 
+                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Link copied!'); }} 
                         className="w-full py-6 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl hover:bg-blue-700 transition-all active:scale-95"
                     >
                         Copy to Clipboard
@@ -260,8 +266,8 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 isOpen={!!userToTerminate}
                 onClose={() => setUserToTerminate(null)}
                 onConfirm={terminateMembership}
-                title="Decommission Node?"
-                message={`Authorize the immediate removal of ${userToTerminate?.name} from this business. Access will be revoked instantly.`}
+                title="Remove Member?"
+                message={`Permanently revoke ${userToTerminate?.name}'s access to this business node?`}
                 variant="danger"
                 isIrreversible
                 confirmLabel="Authorize Removal"

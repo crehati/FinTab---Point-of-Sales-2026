@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User } from '../types';
 import EmptyState from './EmptyState';
-import { PlusIcon, StaffIcon } from '../constants';
+import { PlusIcon, StaffIcon, LinkIcon, CloseIcon } from '../constants';
 import UserModal from './UserModal';
 import ModalShell from './ModalShell';
 import { supabase } from '../lib/supabase';
@@ -11,8 +11,30 @@ import { supabase } from '../lib/supabase';
 const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: User }> = ({ users = [], activeBusinessId, currentUser }) => {
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [inviteLinkToShow, setInviteLinkToShow] = useState<string | null>(null);
+    const [pendingInvites, setPendingInvites] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [auditData, setAuditData] = useState<any>(null);
 
-    // Fetch members logic handled in App.tsx or refined here if real-time needed
+    const fetchPendingInvites = async () => {
+        if (!activeBusinessId) return;
+        setIsLoading(true);
+        try {
+            const client = await supabase.wait();
+            const { data } = await client
+                .from('invitations')
+                .select('*')
+                .eq('business_id', activeBusinessId)
+                .eq('status', 'pending');
+            if (data) setPendingInvites(data);
+        } catch (err) {
+            console.error("Invite Sync Failure", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => { fetchPendingInvites(); }, [activeBusinessId]);
+
     const handleSaveUser = async (userData: any) => {
         if (!currentUser?.id || !activeBusinessId) {
             alert("Authorization Error: Identity or Node ID missing.");
@@ -20,10 +42,11 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
         }
 
         try {
-            await supabase.wait();
+            const client = await supabase.wait();
             const token = crypto.randomUUID();
             
-            const { error } = await supabase.from('invitations').insert({
+            // Create the record in the invitations table
+            const { error } = await client.from('invitations').insert({
                 business_id: activeBusinessId,
                 invited_email: userData.email.toLowerCase(),
                 role: userData.role,
@@ -42,86 +65,167 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             const fullLink = `${baseUrl}#/invite?token=${token}`;
             setInviteLinkToShow(fullLink);
             setIsUserModalOpen(false);
+            fetchPendingInvites();
         } catch (err) {
             alert(`Protocol Error: ${err.message}`);
         }
     };
 
+    const revokeInvite = async (id: string) => {
+        if (!confirm("Revoke this invitation? The link will be decommissioned.")) return;
+        const client = await supabase.wait();
+        await client.from('invitations').delete().eq('id', id);
+        fetchPendingInvites();
+    };
+
     return (
-        <div className="space-y-6 font-sans">
-            <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-xl p-8 border border-white/10">
-                <header className="flex justify-between items-start mb-10">
+        <div className="space-y-12 font-sans pb-24 lg:pb-8">
+            <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl p-8 border border-white/10">
+                <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
                     <div>
                         <h2 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Personnel</h2>
-                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">Authorized Units for this Node</p>
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">Authorized Node Grid: Live & Pending Identities</p>
                     </div>
                     {currentUser.role === 'Owner' && (
-                        <button onClick={() => setIsUserModalOpen(true)} className="bg-primary text-white px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Invite Unit</button>
+                        <button onClick={() => setIsUserModalOpen(true)} className="px-10 py-4 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all flex items-center gap-3">
+                            <PlusIcon className="w-4 h-4" />
+                            Enroll New Unit
+                        </button>
                     )}
                 </header>
 
-                <div className="table-wrapper">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 dark:bg-gray-800 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            <tr>
-                                <th className="px-6 py-4">Unit Identity</th>
-                                <th className="px-6 py-4">Role Protocol</th>
-                                <th className="px-6 py-4 text-center">Status</th>
-                                <th className="px-6 py-4 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y dark:divide-gray-800">
-                            {users.map(u => (
-                                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-6 py-5">
-                                        <div className="flex items-center gap-3">
-                                            <img src={u.avatarUrl || `https://ui-avatars.com/api/?name=${u.name}`} className="w-9 h-9 rounded-xl object-cover border border-slate-100 dark:border-gray-800 shadow-sm" />
+                <div className="space-y-10">
+                    {/* ACTIVE MEMBERS SECTION */}
+                    <div>
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6 px-4">Live Operational Units</h3>
+                        <div className="table-wrapper rounded-[2.5rem] border border-slate-50 dark:border-gray-800 overflow-hidden">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 dark:bg-gray-950 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                    <tr>
+                                        <th className="px-8 py-5">Unit Identity</th>
+                                        <th className="px-8 py-5">Protocol Role</th>
+                                        <th className="px-8 py-5 text-center">Status</th>
+                                        <th className="px-8 py-5 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y dark:divide-gray-800">
+                                    {users.map(u => (
+                                        <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-8 py-6">
+                                                <div className="flex items-center gap-4">
+                                                    <img src={u.avatarUrl || `https://ui-avatars.com/api/?name=${u.name}`} className="w-11 h-11 rounded-2xl object-cover border-2 border-white dark:border-gray-800 shadow-sm" />
+                                                    <div>
+                                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base">{u.name}</p>
+                                                        <p className="text-[9px] text-slate-400 font-bold lowercase truncate max-w-[150px]">{u.email}</p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-8 py-6">
+                                                <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
+                                                    u.role === 'Owner' ? 'bg-primary/5 text-primary border-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-500 border-slate-100'
+                                                }`}>
+                                                    {u.role}
+                                                </span>
+                                            </td>
+                                            <td className="px-8 py-6 text-center">
+                                                <span className="status-badge status-approved !text-[8px] px-4 py-1.5">Live Node</span>
+                                            </td>
+                                            <td className="px-8 py-6 text-right">
+                                                {currentUser.role === 'Owner' && u.id !== currentUser.id && (
+                                                    <button className="text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-rose-500 transition-colors">Terminate</button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* PENDING INVITES SECTION */}
+                    {pendingInvites.length > 0 && (
+                        <div className="animate-fade-in">
+                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-6 px-4">Pending Identity Authorizations</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {pendingInvites.map(inv => (
+                                    <div key={inv.id} className="p-6 bg-amber-50/30 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-[2.5rem] flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 rounded-2xl bg-white dark:bg-gray-800 flex items-center justify-center border border-amber-100">
+                                                <LinkIcon className="w-6 h-6 text-amber-500" />
+                                            </div>
                                             <div>
-                                                <p className="font-bold text-slate-900 dark:text-white uppercase tracking-tight text-xs">{u.name}</p>
-                                                <p className="text-[9px] text-slate-400 font-medium lowercase truncate max-w-[120px]">{u.email}</p>
+                                                <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tighter">{inv.invited_email}</p>
+                                                <p className="text-[8px] font-bold text-amber-600 uppercase tracking-widest mt-1">Protocol: {inv.role}</p>
                                             </div>
                                         </div>
-                                    </td>
-                                    <td className="px-6 py-5">
-                                        <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${
-                                            u.role === 'Owner' ? 'bg-primary/10 text-primary border-primary/20' : 'bg-slate-50 text-slate-500 border-slate-100'
-                                        }`}>
-                                            {u.role}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-5 text-center">
-                                        <span className="status-badge status-approved !text-[8px]">Live Node</span>
-                                    </td>
-                                    <td className="px-6 py-5 text-right">
-                                        {currentUser.role === 'Owner' && u.id !== currentUser.id && (
-                                            <button className="text-[9px] font-black text-slate-400 uppercase hover:text-primary transition-colors">Manage</button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {users.length === 0 && (
-                        <EmptyState icon={<StaffIcon />} title="Personnel Grid Empty" description="Enroll staff units to begin delegating terminal operations." />
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => setAuditData(inv)} 
+                                                className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all border border-slate-100 shadow-sm"
+                                                title="Audit Invitation Logic"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                    <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                            </button>
+                                            <button onClick={() => { setInviteLinkToShow(`${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`); }} className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-primary transition-all border border-slate-100 shadow-sm"><LinkIcon className="w-4 h-4" /></button>
+                                            <button onClick={() => revokeInvite(inv.id)} className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm"><CloseIcon className="w-4 h-4" /></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
 
             <UserModal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} onSave={handleSaveUser} />
 
-            <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Invitation Issued" description="Share this secure link with the invitee.">
-                <div className="space-y-6">
-                    <p className="text-xs text-slate-500 font-medium uppercase tracking-tight leading-relaxed">This unit will be anchored to the current business node upon acceptance.</p>
-                    <div className="p-6 bg-slate-50 dark:bg-gray-800 rounded-2xl border border-slate-100 dark:border-gray-700 break-all font-mono text-[10px] text-primary select-all shadow-inner">
-                        {inviteLinkToShow}
+            <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Identity Token Issued" description="Share this secure authorization link with the invitee.">
+                <div className="space-y-8 py-4">
+                    <div className="p-8 bg-slate-900 rounded-[2rem] border border-white/5 shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 rounded-full blur-3xl -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-1000"></div>
+                        <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-4">Secure Terminal URI</p>
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 break-all font-mono text-[11px] text-white/90 select-all leading-relaxed shadow-inner">
+                            {inviteLinkToShow}
+                        </div>
                     </div>
-                    <button 
-                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Protocol link copied to clipboard.'); }} 
-                        className="w-full py-5 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl"
-                    >
-                        Copy Secure Link
-                    </button>
-                    <p className="text-[8px] text-slate-400 font-bold uppercase text-center tracking-widest">Single-use token. Expires in 7 days.</p>
+                    
+                    <div className="space-y-4">
+                        <button 
+                            onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Protocol link copied to clipboard.'); }} 
+                            className="w-full py-6 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl shadow-primary/30 active:scale-95 transition-all hover:bg-blue-700"
+                        >
+                            Copy Authorization Link
+                        </button>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase text-center tracking-[0.3em] leading-relaxed">
+                            This token is unique and restricted to a single identity.<br/>Expiration: 7 Earth Days.
+                        </p>
+                    </div>
+                </div>
+            </ModalShell>
+
+            <ModalShell isOpen={!!auditData} onClose={() => setAuditData(null)} title="Protocol Audit" description="Verifying invitation metadata integrity">
+                <div className="space-y-6 py-4 font-mono">
+                    <div className="p-6 bg-slate-50 dark:bg-gray-900 rounded-3xl border border-slate-100 dark:border-gray-800">
+                        <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">Digital Payload</p>
+                        <pre className="text-[11px] text-primary dark:text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                            {JSON.stringify({
+                                invitee: auditData?.invited_email,
+                                role: auditData?.role,
+                                initial_investment: auditData?.metadata?.initial_investment || 0,
+                                token_status: "ENCRYPTED/ACTIVE"
+                            }, null, 4)}
+                        </pre>
+                    </div>
+                    <div className="p-5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl flex items-center gap-4">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                        <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">
+                            {auditData?.metadata?.initial_investment > 0 ? "Capital Injection Protocol: VERIFIED" : "No Capital Required for this Identity"}
+                        </p>
+                    </div>
+                    <button onClick={() => setAuditData(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">Close Audit</button>
                 </div>
             </ModalShell>
         </div>

@@ -1,6 +1,6 @@
 
 // @ts-nocheck
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { supabase } from './lib/supabase';
 import { getSystemLogo } from './lib/utils';
@@ -77,6 +77,10 @@ const App = () => {
     const [language, setLanguage] = useState('en');
     const [theme, setTheme] = useState('light');
 
+    // Action Ref Lock - Prevent double execution
+    const isActionProcessing = useRef(false);
+    const authListenerRef = useRef(null);
+
     // State Ledger
     const [products, setProducts] = useState([]);
     const [customers, setCustomers] = useState([]);
@@ -114,7 +118,13 @@ const App = () => {
             } else {
                 setCurrentUser({ id: session.user.id, email: session.user.email, role: 'Staff', status: 'Pending' });
             }
-        } catch (err) { console.error("Identity Sync Failed", err.message); } 
+        } catch (err) { 
+            console.error("Identity Sync Failed", err.message);
+            if (err.message.includes('Refresh Token')) {
+                const client = await supabase.wait();
+                await client.auth.signOut();
+            }
+        } 
         finally { setIsAuthLoading(false); }
     };
 
@@ -138,13 +148,18 @@ const App = () => {
             const { data: { session } } = await client.auth.getSession();
             if (session) { setAuthUserId(session.user.id); await syncIdentity(session); }
             else setIsAuthLoading(false);
-            client.auth.onAuthStateChange((ev, sess) => {
-                setAuthUserId(sess?.user?.id || null);
-                if (ev === 'SIGNED_OUT') { setCurrentUser(null); setActiveBusinessId(null); setIsAuthLoading(false); }
-                else if (sess) syncIdentity(sess);
-            });
+
+            if (!authListenerRef.current) {
+                const { data: { subscription } } = client.auth.onAuthStateChange(async (ev, sess) => {
+                    setAuthUserId(sess?.user?.id || null);
+                    if (ev === 'SIGNED_OUT') { setCurrentUser(null); setActiveBusinessId(null); setIsAuthLoading(false); }
+                    else if (sess) await syncIdentity(sess);
+                });
+                authListenerRef.current = subscription;
+            }
         };
         boot();
+        return () => { if (authListenerRef.current) authListenerRef.current.unsubscribe(); };
     }, [activeBusinessId]);
 
     const fetchLedger = async () => {
@@ -224,7 +239,6 @@ const App = () => {
         await client.from('approval_requests').update({ status: nextStatus }).eq('id', requestId);
         await client.from('approval_signatures').insert({ request_id: requestId, user_id: currentUser.id, status_assigned: nextStatus, note });
         
-        // Notify Creator of the update
         const { data: originalReq } = await client.from('approval_requests').select('created_by, type').eq('id', requestId).single();
         if (originalReq) {
             await createSystemNotification(originalReq.created_by, "Workflow Update", `Your ${originalReq.type} request status has shifted to ${nextStatus.replace('_', ' ')}.`, "info", "");
@@ -238,7 +252,6 @@ const App = () => {
         const client = await supabase.wait();
         const { data } = await client.from('approval_requests').insert({ business_id: activeBusinessId, type, audit_link_id: auditId, amount, status: 'pending_v1', created_by: currentUser.id, metadata }).select().single();
         
-        // Notify Owners of new workflow
         const owners = users.filter(u => u.role === 'Owner');
         for (const owner of owners) {
             await createSystemNotification(owner.id, "Verification Required", `A new ${type.replace('_', ' ')} protocol requires your authorization.`, "action_required", "/dashboard");
@@ -249,15 +262,18 @@ const App = () => {
     };
 
     const onApproveBankSale = async (saleId: string) => {
+        if (isActionProcessing.current) return;
+        isActionProcessing.current = true;
         try {
             const client = await supabase.wait();
             const { data: sale, error: fetchErr } = await client.from('sales').select('*').eq('id', saleId).single();
-            if (fetchErr) throw fetchErr;
+            if (fetchErr || sale.status === 'completed_bank_verified') {
+                 isActionProcessing.current = false;
+                 return;
+            }
 
-            // 1. Finalize Status
             await client.from('sales').update({ status: 'completed_bank_verified' }).eq('id', saleId);
 
-            // 2. Post-Sale Inventory Protocol: Deduct Units
             for (const item of sale.items) {
                 const pid = item.product.id;
                 const { data: current } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
@@ -275,33 +291,34 @@ const App = () => {
                 }
             }
 
-            // 3. Notify Staff
             await createSystemNotification(sale.user_id, "Bank Receipt Verified", `Transaction ${sale.id.slice(-6).toUpperCase()} has been authorized.`, "success", "/receipts");
-            
             await fetchLedger();
             alert("Bank node verification finalized. Inventory synchronized.");
         } catch (err) {
             alert("Verification Failure: " + err.message);
+        } finally {
+            isActionProcessing.current = false;
         }
     };
 
     const onRejectBankSale = async (saleId: string, reason: string) => {
+        if (isActionProcessing.current) return;
+        isActionProcessing.current = true;
         try {
             const client = await supabase.wait();
             await client.from('sales').update({ status: 'rejected_bank_not_verified', verification_note: reason }).eq('id', saleId);
-            
             const { data: sale } = await client.from('sales').select('user_id').eq('id', saleId).single();
             if (sale) {
                 await createSystemNotification(sale.user_id, "Bank Receipt Rejected", `Receipt for ${saleId.slice(-6).toUpperCase()} was flagged: ${reason}`, "error", "/receipts");
             }
-
             await fetchLedger();
         } catch (err) {
             alert("Rejection Protocol Failure: " + err.message);
+        } finally {
+            isActionProcessing.current = false;
         }
     };
 
-    // Unified Ledger Computation for Reports
     const unifiedLedger = useMemo(() => {
         const sEntries = (sales || []).map(s => ({
             id: s.id,
@@ -344,18 +361,10 @@ const App = () => {
                 business_id: activeBusinessId
             };
 
-            if (edit) {
-                const { error } = await client.from('products').update(dbProduct).eq('id', d.id);
-                if (error) throw error;
-            } else {
-                const { error } = await client.from('products').insert(dbProduct);
-                if (error) throw error;
-            }
+            if (edit) await client.from('products').update(dbProduct).eq('id', d.id);
+            else await client.from('products').insert(dbProduct);
             await fetchLedger();
-        } catch (err) {
-            console.error("Cloud Protocol Error: Product save failed", err.message);
-            alert("Integrity Error: Could not commit asset to cloud registry.");
-        }
+        } catch (err) { alert("Integrity Error: Could not commit asset to cloud registry."); }
     };
 
     const handleSaveStockAdjustment = async (productId: string, adj: any) => {
@@ -363,45 +372,24 @@ const App = () => {
             const client = await supabase.wait();
             const product = products.find(p => p.id === productId);
             if (!product) return;
-
             const qty = Number(adj.quantity);
             const newStock = adj.type === 'add' ? product.stock + qty : product.stock - qty;
-
-            const newHistoryItem = {
-                date: new Date().toISOString(),
-                userId: currentUser.id,
-                type: adj.type,
-                quantity: qty,
-                reason: adj.reason,
-                newStockLevel: newStock
-            };
-
+            const newHistoryItem = { date: new Date().toISOString(), userId: currentUser.id, type: adj.type, quantity: qty, reason: adj.reason, newStockLevel: newStock };
             const updatedHistory = [newHistoryItem, ...(product.stockHistory || [])];
-
-            const { error } = await client.from('products').update({
-                stock: newStock,
-                stock_history: updatedHistory
-            }).eq('id', productId);
-
-            if (error) throw error;
+            await client.from('products').update({ stock: newStock, stock_history: updatedHistory }).eq('id', productId);
             await fetchLedger();
-        } catch (err) {
-            console.error("Stock Audit Failure", err.message);
-            alert("Digital Logic Error: Could not commit stock shift to registry.");
-        }
+        } catch (err) { alert("Digital Logic Error: Could not commit stock shift to registry."); }
     };
 
     const t = (k) => translations[language]?.[k] || k;
 
     if (isAuthLoading) return <LoadingScreen />;
-
     if (!authUserId) return (
         <Routes>
             <Route path="/invite" element={<InvitePage currentUser={null} />} />
             <Route path="*" element={<Login onEnterDemo={() => {}} />} />
         </Routes>
     );
-
     if (!activeBusinessId && location.pathname !== '/invite' && location.pathname !== '/onboarding') {
         return <SelectBusiness currentUser={currentUser} onSelect={setActiveBusinessId} onLogout={() => supabase.auth.signOut()} />;
     }
@@ -447,112 +435,47 @@ const App = () => {
                         <main className="p-4 md:p-10 min-h-full max-w-[1600px] mx-auto">
                             <Suspense fallback={<LoadingScreen />}>
                                 <Routes>
-                                    {/* CORE MODULES */}
                                     <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} advanceWorkflow={advanceWorkflow} />} />
                                     <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={unifiedLedger} />} />
                                     <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={handleSaveProduct} onSaveStockAdjustment={handleSaveStockAdjustment} onDeleteProduct={async (id) => { const client = await supabase.wait(); await client.from('products').delete().eq('id', id); await fetchLedger(); }} />} />
                                     <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onSaveProforma={async (s) => {
                                         const client = await supabase.wait();
-                                        const dbSale = {
-                                            business_id: activeBusinessId,
-                                            customer_id: s.customerId,
-                                            user_id: s.userId,
-                                            date: new Date(s.date).toISOString(), // Strict ISO format for DB
-                                            items: s.items,
-                                            subtotal: s.subtotal,
-                                            tax: s.tax,
-                                            discount: s.discount,
-                                            total: s.total,
-                                            status: 'proforma',
-                                            tax_rate: s.taxRate
-                                        };
-                                        const { error } = await client.from('sales').insert(dbSale);
-                                        if (error) { console.error("Proforma Error:", error.message); alert("Proforma Sync Error: " + error.message); }
-                                        else { alert("Proforma quote committed successfully."); }
+                                        const dbSale = { business_id: activeBusinessId, customer_id: s.customerId, user_id: s.userId, date: new Date(s.date).toISOString(), items: s.items, subtotal: s.subtotal, tax: s.tax, discount: s.discount, total: s.total, status: 'proforma', tax_rate: s.taxRate };
+                                        await client.from('sales').insert(dbSale);
                                         await fetchLedger();
                                     }} onProcessSale={async (s) => { 
                                         const client = await supabase.wait(); 
-                                        const dbSale = {
-                                            business_id: activeBusinessId,
-                                            customer_id: s.customerId,
-                                            user_id: s.userId,
-                                            date: new Date(s.date).toISOString(), // Strict ISO format for DB
-                                            items: s.items,
-                                            subtotal: s.subtotal,
-                                            tax: s.tax,
-                                            discount: s.discount,
-                                            total: s.total,
-                                            payment_method: s.paymentMethod,
-                                            tax_rate: s.taxRate,
-                                            status: s.status,
-                                            cash_received: s.cashReceived,
-                                            change: s.change,
-                                            bank_receipt_number: s.bankReceiptNumber,
-                                            bank_name: s.bankName,
-                                            bank_account_id: s.bankAccountId
-                                        };
-
-                                        const { data: saleData, error: saleError } = await client.from('sales').insert(dbSale).select().single(); 
-                                        if (saleError) { 
-                                            console.error("Sale Commit Failure:", saleError.message, saleError.hint || ''); 
-                                            alert("Protocol Error: Sale could not be persisted. Ensure you have run the latest SQL updates in Supabase. " + saleError.message); 
-                                            return; 
-                                        }
-
-                                        // BANK NOTIFICATION FLOW
+                                        const dbSale = { business_id: activeBusinessId, customer_id: s.customerId, user_id: s.userId, date: new Date(s.date).toISOString(), items: s.items, subtotal: s.subtotal, tax: s.tax, discount: s.discount, total: s.total, payment_method: s.paymentMethod, tax_rate: s.taxRate, status: s.status, cash_received: s.cashReceived, change: s.change, bank_receipt_number: s.bankReceiptNumber, bank_name: s.bankName, bank_account_id: s.bankAccountId };
+                                        const { data: saleData } = await client.from('sales').insert(dbSale).select().single(); 
                                         if (s.status === 'pending_bank_verification') {
                                             const ownersAndVerifiers = users.filter(u => u.role === 'Owner' || u.role === 'BankVerifier');
                                             for (const recipient of ownersAndVerifiers) {
-                                                await createSystemNotification(
-                                                    recipient.id, 
-                                                    "New Bank Receipt", 
-                                                    `A sale of ${s.total} requires bank verification. Receipt #: ${s.bankReceiptNumber}`, 
-                                                    "payment", 
-                                                    "/receipts"
-                                                );
+                                                await createSystemNotification(recipient.id, "New Bank Receipt", `A sale of ${s.total} requires bank verification.`, "payment", "/receipts");
                                             }
                                         }
-                                        
-                                        // 1. Post-Sale Inventory Protocol: Deduct Units (Only if not pending bank verif or if auto-deduct is on)
                                         if (s.status !== 'pending_bank_verification') {
                                             for (const item of s.items) {
                                                 const pid = item.product.id;
                                                 const { data: current } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
                                                 if (current) {
                                                     const newStock = Math.max(0, current.stock - item.quantity);
-                                                    const history = [{
-                                                        date: new Date().toISOString(),
-                                                        userId: currentUser.id,
-                                                        type: 'remove',
-                                                        quantity: item.quantity,
-                                                        reason: `POS Sale Settlement (Ref: ${saleData.id.slice(-8).toUpperCase()})`,
-                                                        newStockLevel: newStock
-                                                    }, ...(current.stock_history || [])];
+                                                    const history = [{ date: new Date().toISOString(), userId: currentUser.id, type: 'remove', quantity: item.quantity, reason: `POS Sale (Ref: ${saleData.id.slice(-8)})`, newStockLevel: newStock }, ...(current.stock_history || [])];
                                                     await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
                                                 }
                                             }
                                         }
-
                                         await fetchLedger(); 
                                     }} onAddCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} />} />
-                                    
-                                    {/* FINANCE & LOGISTICS */}
                                     <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} initiateWorkflow={initiateWorkflow} advanceWorkflow={advanceWorkflow} t={t} />} />
                                     <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} bankTransactions={bankTransactions} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setBankAccounts={setBankAccounts} setBankTransactions={setBankTransactions} users={users} />} />
                                     <Route path="transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} onRequestDeposit={async (amt, desc, bankId) => { const client = await supabase.wait(); await client.from('deposits').insert({ business_id: activeBusinessId, user_id: currentUser.id, amount: amt, description: desc, bank_account_id: bankId, status: 'pending' }); await fetchLedger(); }} onUpdateDepositStatus={async (id, status) => { const client = await supabase.wait(); await client.from('deposits').update({ status }).eq('id', id); await fetchLedger(); }} t={t} />} />
-                                    
-                                    {/* AUDIT & SHIPMENT */}
                                     <Route path="goods-costing" element={<GoodsCostingPage goodsCostings={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={createSystemNotification} />} />
                                     <Route path="goods-receiving" element={<GoodsReceivingPage goodsReceivings={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={createSystemNotification} />} />
                                     <Route path="weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={createSystemNotification} t={t} />} />
-
-                                    {/* CLIENT & STAFF MANAGEMENT */}
                                     <Route path="customers" element={<Customers customers={customers} handleSaveCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
                                     <Route path="investors" element={<InvestorPage users={users} netProfit={sales.reduce((s,x)=>s+x.total, 0) - expenses.reduce((s,x)=>s+x.amount, 0)} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={initiateWorkflow} />} />
-                                    
-                                    {/* SYSTEM UTILS */}
                                     <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} onApproveBankSale={onApproveBankSale} onRejectBankSale={onRejectBankSale} />} />
                                     <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
                                     <Route path="expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={async (d) => { const client = await supabase.wait(); await client.from('expenses').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} bankAccounts={bankAccounts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />

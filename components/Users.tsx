@@ -7,20 +7,20 @@ import { PlusIcon, StaffIcon, LinkIcon, CloseIcon } from '../constants';
 import UserModal from './UserModal';
 import ModalShell from './ModalShell';
 import { supabase } from '../lib/supabase';
+import ConfirmationModal from './ConfirmationModal';
 
 const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: User }> = ({ users = [], activeBusinessId, currentUser }) => {
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [inviteLinkToShow, setInviteLinkToShow] = useState<string | null>(null);
     const [pendingInvites, setPendingInvites] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [auditData, setAuditData] = useState<any>(null);
+    const [userToTerminate, setUserToTerminate] = useState<User | null>(null);
 
     const fetchPendingInvites = async () => {
         if (!activeBusinessId) return;
         setIsLoading(true);
         try {
             const client = await supabase.wait();
-            // EXPLICIT COLUMN SELECTION: Prevents PostgREST from requesting 'metadata' if it's missing or cache is stale
             const { data, error } = await client
                 .from('invitations')
                 .select('id, business_id, invited_email, role, token, status, created_at, created_by, expires_at')
@@ -28,7 +28,6 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 .eq('status', 'pending');
             
             if (error) {
-                // If explicit select fails (likely due to schema cache), try a absolute minimum fetch
                 const { data: fallbackData } = await client
                     .from('invitations')
                     .select('id, invited_email, role, token, status')
@@ -57,7 +56,6 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             const client = await supabase.wait();
             const token = crypto.randomUUID();
             
-            // Phase 1: High-Integrity Payload
             const fullPayload = {
                 business_id: activeBusinessId,
                 invited_email: userData.email.toLowerCase(),
@@ -71,22 +69,15 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 }
             };
 
-            // Phase 2: Atomic Insert Attempt
             const { error: insertError } = await client.from('invitations').insert(fullPayload);
 
             if (insertError) {
-                // Check if error is about missing 'metadata' or 'schema cache' staleness
                 const errorText = insertError.message || "";
                 if (errorText.includes("metadata") || errorText.includes("schema cache") || insertError.code === '42703') {
-                    console.warn("[FinTab Security] Schema Cache Mismatch detected. Executing Compatibility Enrollment...");
-                    
-                    // Fallback: Remove metadata from payload and retry
                     const { metadata, ...basicPayload } = fullPayload;
                     const { error: retryError } = await client.from('invitations').insert(basicPayload);
-                    
                     if (retryError) throw retryError;
-                    
-                    alert("PROTOCOL SYNC WARNING: PostgREST schema cache is stale. Enrollment was successful in 'Safe Mode'. The investment metadata will be populated once the API cache refreshes.");
+                    alert("PROTOCOL SYNC WARNING: PostgREST schema cache is stale. Enrollment was successful in 'Safe Mode'.");
                 } else {
                     throw insertError;
                 }
@@ -109,6 +100,29 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
         fetchPendingInvites();
     };
 
+    const terminateMembership = async () => {
+        if (!userToTerminate || !activeBusinessId) return;
+        
+        try {
+            const client = await supabase.wait();
+            const { error } = await client
+                .from('memberships')
+                .delete()
+                .eq('business_id', activeBusinessId)
+                .eq('user_id', userToTerminate.id);
+            
+            if (error) throw error;
+            
+            setUserToTerminate(null);
+            // We need to refresh the parent App's users state.
+            // Since App.tsx fetches from 'memberships', a reload or state sync is needed.
+            alert(`Identity ${userToTerminate.name} has been purged from the node.`);
+            window.location.reload(); 
+        } catch (err) {
+            alert("Termination protocol failed: " + err.message);
+        }
+    };
+
     const forceSyncRegistry = () => {
         setIsLoading(true);
         fetchPendingInvites();
@@ -128,7 +142,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                             </button>
                         </div>
                     </div>
-                    {currentUser.role === 'Owner' && (
+                    {(currentUser.role === 'Owner' || currentUser.role === 'Super Admin') && (
                         <button onClick={() => setIsUserModalOpen(true)} className="px-10 py-4 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all flex items-center gap-3">
                             <PlusIcon className="w-4 h-4" />
                             Enroll New Unit
@@ -137,7 +151,6 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 </header>
 
                 <div className="space-y-10">
-                    {/* ACTIVE MEMBERS SECTION */}
                     <div>
                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6 px-4">Live Operational Units</h3>
                         <div className="table-wrapper rounded-[2.5rem] border border-slate-50 dark:border-gray-800 overflow-hidden">
@@ -164,7 +177,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                                             </td>
                                             <td className="px-8 py-6">
                                                 <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border ${
-                                                    u.role === 'Owner' ? 'bg-primary/5 text-primary border-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-500 border-slate-100'
+                                                    u.role === 'Owner' || u.role === 'Super Admin' ? 'bg-primary/5 text-primary border-primary/20' : 'bg-slate-50 dark:bg-gray-800 text-slate-500 border-slate-100'
                                                 }`}>
                                                     {u.role}
                                                 </span>
@@ -173,8 +186,13 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                                                 <span className="status-badge status-approved !text-[8px] px-4 py-1.5">Live Node</span>
                                             </td>
                                             <td className="px-8 py-6 text-right">
-                                                {currentUser.role === 'Owner' && u.id !== currentUser.id && (
-                                                    <button className="text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-rose-500 transition-colors">Terminate</button>
+                                                {(currentUser.role === 'Owner' || currentUser.role === 'Super Admin') && u.id !== currentUser.id && (
+                                                    <button 
+                                                        onClick={() => setUserToTerminate(u)}
+                                                        className="text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-rose-500 transition-colors"
+                                                    >
+                                                        Terminate
+                                                    </button>
                                                 )}
                                             </td>
                                         </tr>
@@ -184,7 +202,6 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                         </div>
                     </div>
 
-                    {/* PENDING INVITES SECTION */}
                     {pendingInvites.length > 0 && (
                         <div className="animate-fade-in">
                             <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-6 px-4">Pending Identity Authorizations</h3>
@@ -231,12 +248,20 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                         >
                             Copy Authorization Link
                         </button>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase text-center tracking-[0.3em] leading-relaxed">
-                            This token is unique and restricted to a single identity.<br/>Expiration: 7 Earth Days.
-                        </p>
                     </div>
                 </div>
             </ModalShell>
+
+            <ConfirmationModal
+                isOpen={!!userToTerminate}
+                onClose={() => setUserToTerminate(null)}
+                onConfirm={terminateMembership}
+                title="TERMINATE UNIT ACCESS"
+                message={`Authorize the immediate decommissioning of ${userToTerminate?.name}'s access to this business node. This identity will no longer be able to authorize terminal sequences.`}
+                variant="danger"
+                isIrreversible
+                confirmLabel="Authorize Termination"
+            />
         </div>
     );
 };

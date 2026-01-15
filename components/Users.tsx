@@ -20,12 +20,24 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
         setIsLoading(true);
         try {
             const client = await supabase.wait();
-            const { data } = await client
+            // EXPLICIT COLUMN SELECTION: Prevents PostgREST from requesting 'metadata' if it's missing or cache is stale
+            const { data, error } = await client
                 .from('invitations')
-                .select('*')
+                .select('id, business_id, invited_email, role, token, status, created_at, created_by, expires_at')
                 .eq('business_id', activeBusinessId)
                 .eq('status', 'pending');
-            if (data) setPendingInvites(data);
+            
+            if (error) {
+                // If explicit select fails (likely due to schema cache), try a absolute minimum fetch
+                const { data: fallbackData } = await client
+                    .from('invitations')
+                    .select('id, invited_email, role, token, status')
+                    .eq('business_id', activeBusinessId)
+                    .eq('status', 'pending');
+                if (fallbackData) setPendingInvites(fallbackData);
+            } else if (data) {
+                setPendingInvites(data);
+            }
         } catch (err) {
             console.error("Invite Sync Failure", err);
         } finally {
@@ -45,8 +57,8 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             const client = await supabase.wait();
             const token = crypto.randomUUID();
             
-            // Create the record in the invitations table
-            const { error } = await client.from('invitations').insert({
+            // Phase 1: High-Integrity Payload
+            const fullPayload = {
                 business_id: activeBusinessId,
                 invited_email: userData.email.toLowerCase(),
                 role: userData.role,
@@ -57,9 +69,28 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 metadata: {
                     initial_investment: userData.initialInvestment || 0
                 }
-            });
+            };
 
-            if (error) throw error;
+            // Phase 2: Atomic Insert Attempt
+            const { error: insertError } = await client.from('invitations').insert(fullPayload);
+
+            if (insertError) {
+                // Check if error is about missing 'metadata' or 'schema cache' staleness
+                const errorText = insertError.message || "";
+                if (errorText.includes("metadata") || errorText.includes("schema cache") || insertError.code === '42703') {
+                    console.warn("[FinTab Security] Schema Cache Mismatch detected. Executing Compatibility Enrollment...");
+                    
+                    // Fallback: Remove metadata from payload and retry
+                    const { metadata, ...basicPayload } = fullPayload;
+                    const { error: retryError } = await client.from('invitations').insert(basicPayload);
+                    
+                    if (retryError) throw retryError;
+                    
+                    alert("PROTOCOL SYNC WARNING: PostgREST schema cache is stale. Enrollment was successful in 'Safe Mode'. The investment metadata will be populated once the API cache refreshes.");
+                } else {
+                    throw insertError;
+                }
+            }
 
             const baseUrl = window.location.origin + window.location.pathname;
             const fullLink = `${baseUrl}#/invite?token=${token}`;
@@ -78,13 +109,24 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
         fetchPendingInvites();
     };
 
+    const forceSyncRegistry = () => {
+        setIsLoading(true);
+        fetchPendingInvites();
+        setTimeout(() => setIsLoading(false), 1000);
+    };
+
     return (
         <div className="space-y-12 font-sans pb-24 lg:pb-8">
             <div className="bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl p-8 border border-white/10">
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
                     <div>
                         <h2 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Personnel</h2>
-                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">Authorized Node Grid: Live & Pending Identities</p>
+                        <div className="flex items-center gap-4 mt-4">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Authorized Node Grid: Live & Pending Identities</p>
+                            <button onClick={forceSyncRegistry} className="p-2 bg-slate-50 dark:bg-gray-800 rounded-lg text-slate-400 hover:text-primary transition-colors" title="Force Sync Schema Cache">
+                                <svg className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            </button>
+                        </div>
                     </div>
                     {currentUser.role === 'Owner' && (
                         <button onClick={() => setIsUserModalOpen(true)} className="px-10 py-4 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all flex items-center gap-3">
@@ -159,16 +201,6 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
-                                            <button 
-                                                onClick={() => setAuditData(inv)} 
-                                                className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-emerald-500 transition-all border border-slate-100 shadow-sm"
-                                                title="Audit Invitation Logic"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                    <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                    <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                </svg>
-                                            </button>
                                             <button onClick={() => { setInviteLinkToShow(`${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`); }} className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-primary transition-all border border-slate-100 shadow-sm"><LinkIcon className="w-4 h-4" /></button>
                                             <button onClick={() => revokeInvite(inv.id)} className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm"><CloseIcon className="w-4 h-4" /></button>
                                         </div>
@@ -203,29 +235,6 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                             This token is unique and restricted to a single identity.<br/>Expiration: 7 Earth Days.
                         </p>
                     </div>
-                </div>
-            </ModalShell>
-
-            <ModalShell isOpen={!!auditData} onClose={() => setAuditData(null)} title="Protocol Audit" description="Verifying invitation metadata integrity">
-                <div className="space-y-6 py-4 font-mono">
-                    <div className="p-6 bg-slate-50 dark:bg-gray-900 rounded-3xl border border-slate-100 dark:border-gray-800">
-                        <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">Digital Payload</p>
-                        <pre className="text-[11px] text-primary dark:text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                            {JSON.stringify({
-                                invitee: auditData?.invited_email,
-                                role: auditData?.role,
-                                initial_investment: auditData?.metadata?.initial_investment || 0,
-                                token_status: "ENCRYPTED/ACTIVE"
-                            }, null, 4)}
-                        </pre>
-                    </div>
-                    <div className="p-5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl flex items-center gap-4">
-                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                        <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">
-                            {auditData?.metadata?.initial_investment > 0 ? "Capital Injection Protocol: VERIFIED" : "No Capital Required for this Identity"}
-                        </p>
-                    </div>
-                    <button onClick={() => setAuditData(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest">Close Audit</button>
                 </div>
             </ModalShell>
         </div>

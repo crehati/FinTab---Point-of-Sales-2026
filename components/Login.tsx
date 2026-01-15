@@ -1,10 +1,10 @@
 
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
-import { EmailIcon, WarningIcon } from '../constants';
+import { EmailIcon, WarningIcon, ShieldCheckIcon } from '../constants';
 import { isRateLimited } from '../lib/utils';
 
 const FinTabLogo = () => (
@@ -17,7 +17,7 @@ const FinTabLogo = () => (
 );
 
 const Login: React.FC<any> = ({ onEnterDemo }) => {
-    const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
+    const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset' | 'update_password'>('login');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -25,10 +25,27 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
+    const navigate = useNavigate();
+
+    // Protocol: Recovery Interceptor
+    // Listens for the PASSWORD_RECOVERY event from Supabase when a user enters via email link
+    useEffect(() => {
+        const checkRecovery = async () => {
+            const client = await supabase.wait();
+            client.auth.onAuthStateChange(async (event, session) => {
+                if (event === "PASSWORD_RECOVERY") {
+                    setAuthMode('update_password');
+                    setInfoMessage("Identity Verified: Set your new secure access credentials.");
+                }
+            });
+        };
+        checkRecovery();
+    }, []);
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (isRateLimited(`auth-${email}`, 5000)) {
+        
+        if (isRateLimited(`auth-${email || 'global'}`, 5000)) {
             setError("Security: Rate limit active. Wait before retrying.");
             return;
         }
@@ -38,23 +55,32 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
         setInfoMessage(null);
 
         try {
+            const client = await supabase.wait();
+            
             if (authMode === 'login') {
-                const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+                const { error: signInError } = await client.auth.signInWithPassword({ email, password });
                 if (signInError) throw signInError;
-            } else if (authMode === 'signup') {
-                const { data, error: signUpError } = await supabase.auth.signUp({
+            } 
+            else if (authMode === 'signup') {
+                const { error: signUpError } = await client.auth.signUp({
                     email, password, options: { data: { full_name: fullName } }
                 });
                 if (signUpError) throw signUpError;
                 setInfoMessage("Verification link sent. Check your inbox to activate terminal.");
                 setAuthMode('login');
-            } else if (authMode === 'reset') {
-                const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-                    redirectTo: `${window.location.origin}/#/profile`,
+            } 
+            else if (authMode === 'reset') {
+                const { error: resetError } = await client.auth.resetPasswordForEmail(email, {
+                    redirectTo: `${window.location.origin}/#/login`,
                 });
                 if (resetError) throw resetError;
                 setInfoMessage("Secure reset link dispatched. Check your email.");
-                setAuthMode('login');
+            }
+            else if (authMode === 'update_password') {
+                const { error: updateError } = await client.auth.updateUser({ password });
+                if (updateError) throw updateError;
+                setInfoMessage("Credentials updated successfully. Redirecting to terminal...");
+                setTimeout(() => navigate('/dashboard'), 2000);
             }
         } catch (err) {
             setError(err.message || "Authentication protocol error.");
@@ -69,9 +95,14 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                 <div className="text-center mb-10">
                     <FinTabLogo />
                     <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-none mt-4">
-                        {authMode === 'login' ? 'Authorize Entry' : authMode === 'signup' ? 'Enroll Node' : 'Recovery Node'}
+                        {authMode === 'login' ? 'Authorize Entry' : 
+                         authMode === 'signup' ? 'Enroll Node' : 
+                         authMode === 'reset' ? 'Recovery Node' : 
+                         'Secure Identity'}
                     </h1>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-3">Identity Authentication Protocol</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-3">
+                        {authMode === 'update_password' ? 'Credential Update Protocol' : 'Identity Authentication Protocol'}
+                    </p>
                 </div>
 
                 <div className="w-full bg-white dark:bg-gray-900 p-10 sm:p-14 rounded-[3.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.1)] border border-slate-100 dark:border-gray-800">
@@ -94,26 +125,34 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                             </div>
                         )}
                         
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Email Address</label>
-                            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" placeholder="name@domain.com" />
-                        </div>
+                        {authMode !== 'update_password' && (
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Email Address</label>
+                                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" placeholder="name@domain.com" />
+                            </div>
+                        )}
                         
                         {authMode !== 'reset' && (
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center px-1">
-                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Security Password</label>
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                        {authMode === 'update_password' ? 'New Security Password' : 'Security Password'}
+                                    </label>
                                     {authMode === 'login' && (
                                         <button type="button" onClick={() => setAuthMode('reset')} className="text-[10px] font-black uppercase text-primary hover:underline tracking-widest">Forgot?</button>
                                     )}
                                 </div>
                                 <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-gray-800 border-none rounded-2xl p-4 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" placeholder="••••••••" />
-                                {authMode === 'signup' && <PasswordStrengthIndicator password={password} />}
+                                {(authMode === 'signup' || authMode === 'update_password') && <PasswordStrengthIndicator password={password} />}
                             </div>
                         )}
 
                         <button type="submit" disabled={isLoading} className="w-full bg-slate-900 dark:bg-primary text-white py-5 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-3">
-                            {isLoading ? <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div> : (authMode === 'login' ? 'Authorize Entry' : authMode === 'signup' ? 'Initialize Node' : 'Send Reset Link')}
+                            {isLoading ? <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div> : 
+                             (authMode === 'login' ? 'Authorize Entry' : 
+                              authMode === 'signup' ? 'Initialize Node' : 
+                              authMode === 'reset' ? 'Send Reset Link' : 
+                              'Finalize Credentials')}
                         </button>
                     </form>
 
@@ -131,7 +170,7 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                     </div>
                 </div>
                 
-                <p className="mt-10 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4.4</p>
+                <p className="mt-10 text-[8px] font-black text-slate-300 dark:text-slate-700 uppercase tracking-[0.5em]">FinTab Security Node v1.4.6</p>
             </div>
         </div>
     );

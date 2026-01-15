@@ -3,12 +3,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { COUNTRIES } from '../constants';
+import { COUNTRIES, BuildingIcon, ShieldCheckIcon, TransactionIcon } from '../constants';
 
 const STEPS = [
-  { id: 1, name: 'Identity' },
-  { id: 2, name: 'Business' },
-  { id: 3, name: 'Sync' },
+  { id: 1, label: 'Identity Verify' },
+  { id: 2, label: 'Business Node' },
+  { id: 3, label: 'Initialize Sync' },
 ];
 
 const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
@@ -40,9 +40,8 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
         try {
             const userId = currentUser?.id;
-            if (!userId) throw new Error("Identity Check Failed: No authenticated session found.");
+            if (!userId) throw new Error("Identity Session Expired.");
 
-            // 1. Initialize Business Node (Waterfall Phase A)
             const finalBusinessPhone = `${businessPhone.countryCode}${businessPhone.localPhone.replace(/\D/g, '')}`;
             
             const bizPayload = {
@@ -61,7 +60,6 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 }
             };
 
-            // INSERT BUSINESS AND CAPTURE ID
             const { data: bizData, error: bizError } = await supabase
                 .from('businesses')
                 .insert(bizPayload)
@@ -69,10 +67,7 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
                 .single();
             
             if (bizError) throw bizError;
-            if (!bizData?.id) throw new Error("Initialization Error: Business registry failed to return a Node ID.");
 
-            // 2. ATOMIC MEMBERSHIP CREATION (Waterfall Phase B)
-            // This links the user to the business before we move forward
             const { error: memberError } = await supabase
                 .from('memberships')
                 .insert({
@@ -83,126 +78,130 @@ const Onboarding: React.FC<{ currentUser: any }> = ({ currentUser }) => {
 
             if (memberError) throw memberError;
 
-            // 3. SET LOCAL MARKER (Anchoring)
-            // This tells App.tsx which specific node to boot into after refresh
             localStorage.setItem('fintab_active_business_id', bizData.id);
-
-            // 4. MOVE TO SYNC BUFFER STEP
             setStep(3);
         } catch (err: any) {
-            console.error("[Protocol Error]", err);
-            setError(err.message || "An unexpected error occurred during node synchronization.");
+            setError(err.message || "Initialization failure.");
         } finally {
             setLoading(false);
         }
     };
 
     const handleFinalLaunch = () => {
-        // HARD SYNC: Forces App.tsx to re-run its membership checks 
-        // with the newly created database rows in place.
         window.location.hash = '/dashboard';
         window.location.reload();
     };
 
     return (
-        <div className="min-h-screen bg-[#F8FAFC] dark:bg-gray-950 flex flex-col items-center justify-center p-4 sm:p-6 font-sans overflow-y-auto">
-            <div className="w-full max-w-[500px] space-y-3 animate-fade-in">
+        <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex flex-col items-center justify-center p-6 font-sans">
+            <div className="w-full max-w-[500px] space-y-10 animate-fade-in">
                 
-                {/* Progress Visualizer */}
-                <div className="flex justify-center gap-3">
-                    {STEPS.map(s => (
-                        <div key={s.id} className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${step >= s.id ? 'bg-primary' : 'bg-slate-200 dark:bg-gray-800'}`} />
-                    ))}
+                {/* Header Section */}
+                <div className="text-center space-y-3">
+                    <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto shadow-2xl shadow-primary/20 mb-6 text-white">
+                        <BuildingIcon className="w-8 h-8" />
+                    </div>
+                    <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">Business Setup</h1>
+                    <div className="flex justify-center items-center gap-2">
+                        {STEPS.map(s => (
+                            <div key={s.id} className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full transition-all duration-700 ${step >= s.id ? 'bg-primary w-6' : 'bg-slate-300 dark:bg-gray-800'}`} />
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-900 p-6 md:p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800">
+                <div className="bg-white dark:bg-gray-900 p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-gray-800 transition-all">
                     {step === 1 && (
-                        <div className="space-y-6 animate-fade-in">
-                            <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Legal Identity</h2>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Authorized Owner Enrollment</p>
-                            </header>
-                            <div className="p-5 bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-800">
-                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Authenticated Account</p>
-                                <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser?.name || currentUser?.email}</p>
+                        <div className="space-y-8 animate-fade-in">
+                            <div className="space-y-1">
+                                <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Identity Confirmation</h2>
+                                <p className="text-sm font-medium text-slate-500">Confirm your owner credentials.</p>
+                            </div>
+                            <div className="p-6 bg-slate-50 dark:bg-gray-950 rounded-2xl border border-slate-100 dark:border-gray-800 flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                                    <ShieldCheckIcon className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Signed In As</p>
+                                    <p className="text-sm font-bold text-slate-900 dark:text-white">{currentUser?.email}</p>
+                                </div>
                             </div>
                             <button 
                                 onClick={() => setStep(2)} 
-                                className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-98 transition-all"
+                                className="w-full bg-slate-900 text-white py-5 rounded-xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all"
                             >
-                                Continue to Business Setup
+                                Continue to Node Config
                             </button>
                         </div>
                     )}
 
                     {step === 2 && (
-                        <div className="space-y-6 animate-fade-in">
-                            <header>
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Business Node</h2>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Configure Authorized Grid Node</p>
-                            </header>
+                        <div className="space-y-8 animate-fade-in">
+                            <div className="space-y-1">
+                                <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Node Configuration</h2>
+                                <p className="text-sm font-medium text-slate-500">Define your primary business parameters.</p>
+                            </div>
                             {error && (
-                                <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl text-[10px] font-bold uppercase border border-rose-100 animate-shake mb-4">
+                                <div className="p-4 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold border border-rose-100 animate-shake">
                                     {error}
                                 </div>
                             )}
-                            <div className="space-y-4">
-                                <Input label="Organization Name" value={business.businessName} onChange={e => setBusiness({...business, businessName: e.target.value})} placeholder="e.g. Quantum Retail" />
-                                <div>
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 mb-1 block">Mobile Endpoint</label>
-                                    <div className="flex bg-slate-50 dark:bg-gray-800 rounded-xl overflow-hidden focus-within:ring-4 focus-within:ring-primary/10 transition-all">
-                                        <select name="countryCode" value={businessPhone.countryCode} onChange={e => setBusinessPhone({...businessPhone, countryCode: e.target.value})} className="bg-transparent border-none text-sm font-bold pl-3 w-28 outline-none">
+                            <div className="space-y-5">
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Business Name</label>
+                                    <input value={business.businessName} onChange={e => setBusiness({...business, businessName: e.target.value})} className="w-full bg-slate-50 dark:bg-gray-950 border-none rounded-xl px-5 py-4 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-primary/10 transition-all" placeholder="e.g. Acme Retail Solutions" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Contact Protocol</label>
+                                    <div className="flex bg-slate-50 dark:bg-gray-950 rounded-xl overflow-hidden focus-within:ring-4 focus-within:ring-primary/10 transition-all">
+                                        <select value={businessPhone.countryCode} onChange={e => setBusinessPhone({...businessPhone, countryCode: e.target.value})} className="bg-transparent border-none text-sm font-bold pl-4 w-28 outline-none">
                                             {COUNTRIES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code}</option>)}
                                         </select>
-                                        <input type="tel" value={businessPhone.localPhone} onChange={e => setBusinessPhone({...businessPhone, localPhone: e.target.value})} className="flex-1 bg-transparent border-none p-3.5 text-base font-bold outline-none" placeholder="5551234567" />
+                                        <input type="tel" value={businessPhone.localPhone} onChange={e => setBusinessPhone({...businessPhone, localPhone: e.target.value})} className="flex-1 bg-transparent border-none p-4 text-sm font-bold outline-none" placeholder="5551234567" />
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex gap-3">
-                                <button onClick={() => setStep(1)} className="flex-1 py-4 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[9px] tracking-widest" disabled={loading}>Back</button>
+                            <div className="flex gap-4">
+                                <button onClick={() => setStep(1)} className="flex-1 py-5 bg-slate-100 dark:bg-gray-800 text-slate-500 rounded-xl font-black uppercase text-[10px] tracking-widest" disabled={loading}>Back</button>
                                 <button 
                                     onClick={handleRegistrationSubmit} 
                                     disabled={loading || !business.businessName}
-                                    className="flex-[2] bg-primary text-white py-4 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    className="flex-[2] bg-primary text-white py-5 rounded-xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20 active:scale-95 transition-all flex items-center justify-center gap-2"
                                 >
-                                    {loading ? <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Initialize Grid'}
+                                    {loading ? <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Initialize Node'}
                                 </button>
                             </div>
                         </div>
                     )}
 
                     {step === 3 && (
-                        <div className="text-center space-y-6 py-4 animate-scale-in">
-                            <div className="w-20 h-20 bg-emerald-500 rounded-[2rem] shadow-2xl shadow-emerald-200 flex items-center justify-center text-white mx-auto">
-                                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
+                        <div className="text-center space-y-8 py-4 animate-scale-in">
+                            <div className="w-24 h-24 bg-emerald-500 rounded-full shadow-2xl shadow-emerald-500/20 flex items-center justify-center text-white mx-auto">
+                                <ShieldCheckIcon className="w-12 h-12" />
                             </div>
-                            <div>
-                                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Sync Complete</h2>
-                                <p className="text-xs font-medium text-slate-400 mt-2 leading-relaxed">Membership verified. Business node is live.</p>
+                            <div className="space-y-2">
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-tight">Node Synchronized</h2>
+                                <p className="text-sm font-medium text-slate-500">Your master identity is now anchored to this business.</p>
                             </div>
                             <button 
                                 onClick={handleFinalLaunch} 
-                                className="w-full bg-slate-900 text-white py-5 rounded-xl font-black uppercase text-[11px] tracking-[0.3em] shadow-2xl active:scale-95 transition-all"
+                                className="w-full bg-slate-900 text-white py-6 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all"
                             >
-                                Launch Dashboard
+                                Start Operating
                             </button>
                         </div>
                     )}
                 </div>
 
                 {step < 3 && (
-                    <button onClick={() => navigate('/')} className="w-full text-center text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-slate-500 transition-colors mt-8" disabled={loading}>Abort Protocol</button>
+                    <div className="text-center">
+                        <button onClick={() => navigate('/')} className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 hover:text-rose-500 transition-colors">Abort Onboarding Protocol</button>
+                    </div>
                 )}
             </div>
         </div>
     );
 };
-
-const Input: React.FC<any> = ({ label, ...props }) => (
-    <div className="space-y-1">
-        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1 block">{label}</label>
-        <input className="w-full bg-slate-50 dark:bg-gray-950 border-none rounded-xl p-3.5 text-base font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none" {...props} />
-    </div>
-);
 
 export default Onboarding;

@@ -32,7 +32,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     return;
                 }
 
-                // 1. Prioritize any session invite token (from a link click)
+                // 1. Check for manual invite in session (from link click)
                 const sessionToken = sessionStorage.getItem('fintab_invite_token');
                 if (sessionToken) {
                     navigate(`/invite?token=${sessionToken}`);
@@ -54,7 +54,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     .eq('invited_email', session.user.email.toLowerCase())
                     .eq('status', 'pending');
 
-                // AUTO-SELECT LOGIC: If member of ONLY 1 business and NO invites, go straight in
+                // AUTO-SELECT LOGIC: If exactly 1 business and NO invites, enter automatically
                 if (memberships && memberships.length === 1 && (!invites || invites.length === 0)) {
                     onSelect(memberships[0].business_id);
                     return; 
@@ -79,7 +79,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     if (isLoading) return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-950 font-sans">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Synchronizing Authorization Grid...</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Initializing Global Hub...</p>
         </div>
     );
 
@@ -92,8 +92,8 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                              <TransactionIcon className="text-white w-8 h-8" />
                         </div>
                     </div>
-                    <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Access Hub</h1>
-                    <p className="text-sm font-medium text-slate-500">Authorized terminal nodes available for your identity.</p>
+                    <h1 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Your Hub</h1>
+                    <p className="text-sm font-medium text-slate-500">Pick an authorized terminal node to begin.</p>
                 </header>
 
                 <div className="space-y-6">
@@ -103,26 +103,35 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                         </div>
                     )}
 
-                    {/* Pending Invitations - THE PRIMARY ACTION FOR NEW STAFF */}
+                    {/* Pending Invitations - Designed to feel exactly like a premium business card */}
                     {pendingInvites.length > 0 && (
                         <div className="space-y-3 animate-fade-in-up">
-                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] px-4">New Invitations Detected</p>
+                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] px-4">New Authorization(s) Detected</p>
                             {pendingInvites.map(inv => (
                                 <div
                                     key={inv.id}
-                                    className="w-full flex items-center gap-6 p-8 bg-amber-50/50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-900/30 rounded-[2.5rem] shadow-xl"
+                                    className="w-full p-8 bg-white dark:bg-gray-900 border-2 border-amber-200 dark:border-amber-900/30 rounded-[2.5rem] shadow-xl relative overflow-hidden group"
                                 >
-                                    <div className="w-16 h-16 rounded-[1.25rem] bg-white dark:bg-gray-800 flex items-center justify-center text-amber-500 shadow-md">
-                                        <ShieldCheckIcon className="w-8 h-8" />
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl"></div>
+                                    <div className="flex items-center gap-6 mb-8">
+                                        <div className="w-16 h-16 rounded-[1.25rem] bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center text-amber-500 shadow-sm border border-amber-100 dark:border-amber-900/30">
+                                            <ShieldCheckIcon className="w-8 h-8" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Invitation</p>
+                                            <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-2xl truncate">{inv.businesses?.name || 'Authorized Unit'}</p>
+                                        </div>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Join as {inv.role}</p>
-                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-xl truncate">{inv.businesses?.name || 'Authorized Unit'}</p>
+                                    <div className="flex items-center justify-between pt-6 border-t border-slate-50 dark:border-gray-800">
+                                        <div className="flex items-center gap-2">
+                                            <StaffIcon className="w-4 h-4 text-slate-400" />
+                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{inv.role} Protocol</span>
+                                        </div>
                                         <button
                                             onClick={() => handleJoinInvite(inv.token)}
-                                            className="mt-4 px-8 py-3 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:bg-amber-600 active:scale-95 transition-all"
+                                            className="px-8 py-3 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-amber-500/20 hover:bg-amber-600 active:scale-95 transition-all"
                                         >
-                                            ACCEPT & JOIN
+                                            JOIN NODE
                                         </button>
                                     </div>
                                 </div>
@@ -145,7 +154,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{m.businesses?.name || 'Unnamed Node'}</p>
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{m.role} Identity</p>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{m.role} Authorization</p>
                                     </div>
                                     <div className="text-slate-200 group-hover:text-primary transition-colors">
                                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M9 5l7 7-7 7" /></svg>
@@ -184,7 +193,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 className="flex items-center gap-3 px-8 py-3 rounded-full text-slate-400 hover:text-primary hover:bg-white transition-all group"
                             >
                                 <PlusIcon className="w-4 h-4 group-hover:rotate-90 transition-transform" />
-                                <span className="text-[10px] font-black uppercase tracking-widest">Register New Enterprise</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Enroll New Enterprise</span>
                             </button>
                         </div>
                     )}

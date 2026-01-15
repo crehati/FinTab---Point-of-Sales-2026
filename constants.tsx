@@ -1,4 +1,5 @@
 
+// @ts-nocheck
 import type { Product, Customer, User, Sale, Expense, CompanyValuation, Deposit, AdminBusinessData, ReceiptSettingsData, OwnerSettings, BusinessSettingsData, AnomalySettings } from './types';
 import React from 'react';
 

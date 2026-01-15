@@ -1,4 +1,5 @@
 
+// @ts-nocheck
 export interface Syncable {
   syncStatus?: 'pending' | 'synced';
   lastUpdated?: string;

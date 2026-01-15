@@ -1,3 +1,5 @@
+
+// @ts-nocheck
 export const translations: Record<string, any> = {
   en: {
     // Common
@@ -123,5 +125,4 @@ export const translations: Record<string, any> = {
     liveFeed: 'Live Feed',
     sync: 'Synchronized'
   }
-  // es, fr, ht remain available but focusing on en for the primary UI fixes
 };

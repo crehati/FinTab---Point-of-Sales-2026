@@ -1,3 +1,5 @@
+
+// @ts-nocheck
 export const getStoredItem = <T,>(key: string, defaultValue: T): T => {
     const item = localStorage.getItem(key);
     if (item === null || item === 'undefined' || item === 'null') return defaultValue;

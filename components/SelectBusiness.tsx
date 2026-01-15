@@ -46,25 +46,31 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     .eq('user_id', session.user.id);
                 
                 if (mError) throw mError;
-                setMyMemberships(memberships || []);
-
-                // 3. Fetch auto-detected invites by email
-                const { data: invites, error: iError } = await client
+                
+                // CRITICAL FLOW: If user has exactly ONE membership and NO pending invites,
+                // auto-select it to make staff entry identical to Owner entry.
+                const { data: invites } = await client
                     .from('invitations')
-                    .select('*, businesses(name)')
+                    .select('id, token, businesses(name)')
                     .eq('invited_email', session.user.email.toLowerCase())
                     .eq('status', 'pending');
-                
-                if (!iError) setPendingInvites(invites || []);
+
+                if (memberships && memberships.length === 1 && (!invites || invites.length === 0)) {
+                    onSelect(memberships[0].business_id);
+                    return; 
+                }
+
+                setMyMemberships(memberships || []);
+                setPendingInvites(invites || []);
 
             } catch (err) {
-                setError(err.message || "Connection error.");
+                setError(err.message || "Protocol connection error.");
             } finally {
                 setIsLoading(false);
             }
         };
         fetchData();
-    }, [navigate]);
+    }, [navigate, onSelect]);
 
     const handleJoinInvite = (token: string) => {
         navigate(`/invite?token=${token}`);
@@ -73,7 +79,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
     if (isLoading) return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-gray-950 font-sans">
             <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-6"></div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Synchronizing...</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Synchronizing Authorization Grid...</p>
         </div>
     );
 
@@ -86,8 +92,8 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                              <TransactionIcon className="text-white w-6 h-6" />
                         </div>
                     </div>
-                    <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">Your Hub</h1>
-                    <p className="text-sm font-medium text-slate-500">Pick a business to start or join a new one.</p>
+                    <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">Access Hub</h1>
+                    <p className="text-sm font-medium text-slate-500">Pick an operational node to initialize your session.</p>
                 </header>
 
                 <div className="space-y-4">
@@ -100,21 +106,21 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     {/* Pending Invitations (Auto-Detected) */}
                     {pendingInvites.length > 0 && (
                         <div className="space-y-3 animate-fade-in-up">
-                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] px-4">Invitations Found</p>
+                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] px-4">Authorizations Found</p>
                             {pendingInvites.map(inv => (
                                 <button
                                     key={inv.id}
                                     onClick={() => handleJoinInvite(inv.token)}
-                                    className="w-full flex items-center gap-5 p-6 bg-amber-50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-900/30 rounded-3xl hover:bg-amber-100 transition-all group text-left shadow-md"
+                                    className="w-full flex items-center gap-5 p-6 bg-amber-50/50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-900/30 rounded-3xl hover:bg-amber-100 transition-all group text-left shadow-md active:scale-95"
                                 >
                                     <div className="w-12 h-12 rounded-2xl bg-white dark:bg-gray-800 flex items-center justify-center text-amber-500 shadow-sm">
                                         <ShieldCheckIcon className="w-6 h-6" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">Join {inv.businesses?.name || 'Business'}</p>
-                                        <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mt-1">Invited as: {inv.role}</p>
+                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">Join {inv.businesses?.name || 'Authorized Unit'}</p>
+                                        <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mt-1">Status: Pending Verification</p>
                                     </div>
-                                    <div className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Join Now</div>
+                                    <div className="px-4 py-2 bg-amber-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">Initialize</div>
                                 </button>
                             ))}
                         </div>
@@ -123,7 +129,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                     {/* Existing Memberships */}
                     {myMemberships.length > 0 && (
                         <div className="space-y-3">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] px-4">Your Businesses</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] px-4">Authorized Units</p>
                             {myMemberships.map(m => (
                                 <button
                                     key={m.business_id}
@@ -134,8 +140,8 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                         {(m.role === 'Owner' || m.role === 'Super Admin') ? <CrownIcon className="w-6 h-6" /> : <StaffIcon className="w-6 h-6" />}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{m.businesses?.name || 'Unnamed'}</p>
-                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{m.role}</p>
+                                        <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg truncate">{m.businesses?.name || 'Unnamed Node'}</p>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{m.role} Authorization</p>
                                     </div>
                                     <div className="text-slate-200 group-hover:text-primary transition-colors">
                                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M9 5l7 7-7 7" /></svg>
@@ -152,16 +158,16 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 <BuildingIcon className="w-10 h-10" />
                             </div>
                             <div className="space-y-3">
-                                <h3 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight leading-none">Ready to start?</h3>
+                                <h3 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight leading-none">Protocol Null</h3>
                                 <p className="text-sm font-medium text-slate-500 leading-relaxed px-6">
-                                    You aren't linked to a business yet. Create your own workspace below.
+                                    You aren't associated with any business nodes. Create a new grid below or wait for an invitation.
                                 </p>
                             </div>
                             <button 
                                 onClick={() => navigate('/onboarding')} 
                                 className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20 hover:bg-blue-700 transition-all active:scale-95"
                             >
-                                Start My Business
+                                Start New Business
                             </button>
                         </div>
                     )}
@@ -174,7 +180,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 className="w-full flex items-center justify-center gap-3 p-5 bg-white dark:bg-gray-900 text-slate-500 border border-slate-100 dark:border-gray-800 rounded-3xl hover:border-primary/20 hover:text-primary transition-all shadow-sm"
                             >
                                 <PlusIcon className="w-4 h-4" />
-                                <span className="text-[10px] font-black uppercase tracking-widest">Create New Business</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Enroll New Business Node</span>
                             </button>
                         </div>
                     )}

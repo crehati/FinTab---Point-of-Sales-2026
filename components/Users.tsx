@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { User } from '../types';
 import EmptyState from './EmptyState';
-import { PlusIcon, StaffIcon, LinkIcon, CloseIcon, WarningIcon } from '../constants';
+import { PlusIcon, StaffIcon, LinkIcon, CloseIcon, WarningIcon, DeleteIcon } from '../constants';
 import UserModal from './UserModal';
 import ModalShell from './ModalShell';
 import { supabase } from '../lib/supabase';
@@ -45,13 +45,32 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             return;
         }
 
+        const normalizedEmail = userData.email.toLowerCase().trim();
+
+        // 1. Check for existing membership
+        if (users.find(u => u.email?.toLowerCase() === normalizedEmail)) {
+            alert(`Protocol Error: User ${normalizedEmail} is already a live node in this business.`);
+            return;
+        }
+
+        // 2. Check for duplicate pending invite
+        const existingInvite = pendingInvites.find(inv => inv.invited_email.toLowerCase() === normalizedEmail);
+        if (existingInvite) {
+            if (confirm(`Identity ${normalizedEmail} already has a pending invitation. Re-issue current token link?`)) {
+                const baseUrl = window.location.origin + window.location.pathname;
+                setInviteLinkToShow(`${baseUrl}#/invite?token=${existingInvite.token}`);
+                setIsUserModalOpen(false);
+            }
+            return;
+        }
+
         try {
             const client = await supabase.wait();
             const token = crypto.randomUUID();
             
             const fullPayload = {
                 business_id: activeBusinessId,
-                invited_email: userData.email.toLowerCase(),
+                invited_email: normalizedEmail,
                 role: userData.role,
                 token: token,
                 status: 'pending',
@@ -74,10 +93,25 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
     };
 
     const revokeInvite = async (id: string) => {
-        if (!confirm("Revoke this invitation?")) return;
-        const client = await supabase.wait();
-        await client.from('invitations').delete().eq('id', id);
-        fetchPendingInvites();
+        if (!confirm("Authorize decommissioning of this invitation? The token will be immediately voided.")) return;
+        setIsProcessing(true);
+        try {
+            const client = await supabase.wait();
+            const { error } = await client.from('invitations').delete().eq('id', id);
+            
+            if (error) {
+                if (error.message.includes("permission denied")) {
+                    throw new Error("Authorization Denied: Run the Supabase SQL update to grant revoke permissions to Owners.");
+                }
+                throw error;
+            }
+            
+            fetchPendingInvites();
+        } catch (err) {
+            alert("Revoke Failure: " + err.message);
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     const terminateMembership = async () => {
@@ -94,7 +128,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             if (error) throw error;
             
             setUserToTerminate(null);
-            alert(`Identity ${userToTerminate.name} has been removed from this business.`);
+            alert(`Identity ${userToTerminate.name} has been removed from this business node.`);
             window.location.reload(); 
         } catch (err) {
             alert("Termination protocol failed: " + err.message);
@@ -109,35 +143,35 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
                     <div>
                         <h2 className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none">Personnel</h2>
-                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">Manage staff roles and business access.</p>
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">Authorized Hub Identities & Access Control</p>
                     </div>
                     {(currentUser.role === 'Owner' || currentUser.role === 'Super Admin') && (
                         <button onClick={() => setIsUserModalOpen(true)} className="px-10 py-4 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all flex items-center gap-3">
                             <PlusIcon className="w-4 h-4" />
-                            Invite Staff
+                            Enroll Unit
                         </button>
                     )}
                 </header>
 
                 <div className="space-y-10">
                     <div>
-                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6 px-4">Active Team</h3>
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-6 px-4">Live Operational Units</h3>
                         <div className="table-wrapper rounded-[2.5rem] border border-slate-50 dark:border-gray-800 overflow-hidden">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 dark:bg-gray-950 text-[10px] font-black uppercase tracking-widest text-slate-400">
                                     <tr>
-                                        <th className="px-8 py-5">Name</th>
-                                        <th className="px-8 py-5">Role</th>
+                                        <th className="px-8 py-5">Unit Identity</th>
+                                        <th className="px-8 py-5">Protocol Role</th>
                                         <th className="px-8 py-5 text-center">Status</th>
                                         <th className="px-8 py-5 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y dark:divide-gray-800">
                                     {users.map(u => (
-                                        <tr key={u.id} className="hover:bg-slate-50 transition-colors group">
+                                        <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
                                             <td className="px-8 py-6">
                                                 <div className="flex items-center gap-4">
-                                                    <img src={u.avatarUrl || `https://ui-avatars.com/api/?name=${u.name}`} className="w-10 h-10 rounded-2xl object-cover shadow-sm" />
+                                                    <img src={u.avatarUrl || `https://ui-avatars.com/api/?name=${u.name}`} className="w-10 h-10 rounded-2xl object-cover shadow-sm border border-slate-100" />
                                                     <div>
                                                         <p className="font-black text-slate-900 dark:text-white uppercase tracking-tighter">{u.name}</p>
                                                         <p className="text-[9px] text-slate-400 font-bold lowercase">{u.email}</p>
@@ -152,15 +186,15 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                                                 </span>
                                             </td>
                                             <td className="px-8 py-6 text-center">
-                                                <span className="status-badge status-approved !text-[8px] px-4 py-1.5 uppercase">Member</span>
+                                                <span className="status-badge status-approved !text-[8px] px-4 py-1.5 uppercase">Operational</span>
                                             </td>
                                             <td className="px-8 py-6 text-right">
                                                 {(currentUser.role === 'Owner' || currentUser.role === 'Super Admin') && u.id !== currentUser.id && (
                                                     <button 
                                                         onClick={() => setUserToTerminate(u)}
-                                                        className="px-4 py-2 bg-rose-50 dark:bg-rose-950/20 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all opacity-0 group-hover:opacity-100"
+                                                        className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all opacity-0 group-hover:opacity-100"
                                                     >
-                                                        Terminate Access
+                                                        Terminate
                                                     </button>
                                                 )}
                                             </td>
@@ -172,23 +206,27 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                     </div>
 
                     {pendingInvites.length > 0 && (
-                        <div className="animate-fade-in">
-                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-6 px-4">Waiting for Approval</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="animate-fade-in pt-8 border-t dark:border-gray-800">
+                            <h3 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.4em] mb-8 px-4">Pending Initializations ({pendingInvites.length})</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-4">
                                 {pendingInvites.map(inv => (
-                                    <div key={inv.id} className="p-6 bg-amber-50/30 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-[2.5rem] flex items-center justify-between group">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-12 h-12 rounded-2xl bg-white dark:bg-gray-800 flex items-center justify-center border border-amber-100">
+                                    <div key={inv.id} className="p-8 bg-slate-50 dark:bg-gray-800 rounded-[2.5rem] border border-slate-100 dark:border-gray-700 relative group shadow-sm hover:shadow-xl transition-all">
+                                        <div className="flex justify-between items-start mb-6">
+                                            <div className="w-12 h-12 rounded-2xl bg-white dark:bg-gray-700 flex items-center justify-center border border-amber-100 shadow-sm">
                                                 <StaffIcon className="w-6 h-6 text-amber-500" />
                                             </div>
-                                            <div>
-                                                <p className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-tighter">{inv.invited_email}</p>
-                                                <p className="text-[8px] font-bold text-amber-600 uppercase tracking-widest mt-1">Invited as {inv.role}</p>
+                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => setInviteLinkToShow(`${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-primary transition-all border border-slate-100 shadow-sm" title="Re-issue Link"><LinkIcon className="w-4 h-4" /></button>
+                                                <button onClick={() => revokeInvite(inv.id)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm" title="Decommission Invite"><CloseIcon className="w-4 h-4" /></button>
                                             </div>
                                         </div>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => { setInviteLinkToShow(`${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`); }} className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-primary transition-all border border-slate-100 shadow-sm"><LinkIcon className="w-4 h-4" /></button>
-                                            <button onClick={() => revokeInvite(inv.id)} className="p-3 bg-white dark:bg-gray-800 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm"><CloseIcon className="w-4 h-4" /></button>
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate">{inv.invited_email}</p>
+                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Target Role: {inv.role}</p>
+                                        </div>
+                                        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-gray-700 flex justify-between items-center">
+                                            <span className="text-[8px] font-black uppercase text-amber-500 tracking-widest animate-pulse">Awaiting Verification</span>
+                                            <p className="text-[8px] font-bold text-slate-300 uppercase">{new Date(inv.created_at).toLocaleDateString()}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -200,18 +238,20 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
 
             <UserModal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} onSave={handleSaveUser} />
 
-            <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Invitation Link Created" description="Share this link with your staff member.">
+            <ModalShell isOpen={!!inviteLinkToShow} onClose={() => setInviteLinkToShow(null)} title="Invitation Link Issued" description="Share this secure link with the staff node.">
                 <div className="space-y-8 py-4">
                     <div className="p-8 bg-slate-900 rounded-[2rem] border border-white/5 shadow-2xl relative overflow-hidden">
-                        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 break-all font-mono text-[11px] text-white/90 select-all leading-relaxed">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl"></div>
+                        <p className="text-[9px] font-black text-primary uppercase tracking-[0.4em] mb-4">Secure Authorization URI</p>
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 break-all font-mono text-[11px] text-white/90 select-all leading-relaxed shadow-inner">
                             {inviteLinkToShow}
                         </div>
                     </div>
                     <button 
-                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Link copied!'); }} 
-                        className="w-full py-6 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl hover:bg-blue-700 transition-all"
+                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Link synchronized to clipboard.'); }} 
+                        className="w-full py-6 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl hover:bg-blue-700 transition-all active:scale-95"
                     >
-                        Copy Link
+                        Copy to Clipboard
                     </button>
                 </div>
             </ModalShell>
@@ -220,11 +260,11 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 isOpen={!!userToTerminate}
                 onClose={() => setUserToTerminate(null)}
                 onConfirm={terminateMembership}
-                title="Remove Member?"
-                message={`Are you sure you want to remove ${userToTerminate?.name} from this business? They will lose access immediately.`}
+                title="Decommission Node?"
+                message={`Authorize the immediate removal of ${userToTerminate?.name} from this business. Access will be revoked instantly.`}
                 variant="danger"
                 isIrreversible
-                confirmLabel="Confirm Removal"
+                confirmLabel="Authorize Removal"
                 isProcessing={isProcessing}
             />
         </div>

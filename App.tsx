@@ -39,6 +39,7 @@ import GoodsReceivingPage from './components/GoodsReceiving';
 import WeeklyInventoryCheckPage from './components/WeeklyInventoryCheck';
 import ExpenseRequestPage from './components/ExpenseRequestPage';
 import Transactions from './components/Transactions';
+import AIAssistant from './components/AIAssistant';
 
 const LoadingScreen = () => (
     <div className="h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-gray-950 font-sans">
@@ -517,6 +518,7 @@ const App = () => {
                                     <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} />} />
                                     <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} />} />
                                     <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
+                                    <Route path="chat-help" element={<AIAssistant currentUser={currentUser} sales={sales} products={products} expenses={expenses} customers={customers} users={users} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} businessSettings={DEFAULT_BUSINESS_SETTINGS} lowStockThreshold={10} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} />} />
                                     <Route path="*" element={<Navigate to="dashboard" replace />} />
                                 </Routes>
                             </Suspense>

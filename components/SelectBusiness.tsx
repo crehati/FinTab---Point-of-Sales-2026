@@ -50,7 +50,7 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                 // 3. Fetch auto-detected invitations for this email
                 const { data: invites } = await client
                     .from('invitations')
-                    .select('id, token, role, businesses(name, id)')
+                    .select('id, token, role, business_id, businesses(name, id)')
                     .eq('invited_email', session.user.email.toLowerCase())
                     .eq('status', 'pending');
 
@@ -61,7 +61,14 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                 }
 
                 setMyMemberships(memberships || []);
-                setPendingInvites(invites || []);
+
+                // Filter duplicates in UI just in case they exist in DB
+                const uniqueInvitesMap = new Map();
+                (invites || []).forEach(inv => {
+                    const key = `${inv.business_id}_${inv.role}`;
+                    if (!uniqueInvitesMap.has(key)) uniqueInvitesMap.set(key, inv);
+                });
+                setPendingInvites(Array.from(uniqueInvitesMap.values()));
 
             } catch (err) {
                 setError(err.message || "Protocol connection error.");

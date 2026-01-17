@@ -1,3 +1,4 @@
+
 import React, { memo, useMemo, useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
@@ -37,7 +38,6 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, currentUser, on
     const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
     // CRITICAL FIX: Lock sidebar scroll position on navigation
-    // This prevents the "Settings/Identity scroll jump" reported by the user.
     useEffect(() => {
         const currentScroll = navScrollRef.current?.scrollTop;
         if (currentScroll !== undefined && navScrollRef.current) {
@@ -138,7 +138,15 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, currentUser, on
                     </div>
                 </nav>
             </aside>
-            <ConfirmationModal isOpen={isLogoutConfirmOpen} onClose={() => setIsLogoutConfirmOpen(false)} onConfirm={onLogout} title={t('logout')} message="End session?" confirmLabel={t('logout')} variant="danger" />
+            <ConfirmationModal 
+                isOpen={isLogoutConfirmOpen} 
+                onClose={() => setIsLogoutConfirmOpen(false)} 
+                onConfirm={onLogout} 
+                title="Logout" 
+                message="End session?" 
+                confirmLabel="Logout" 
+                variant="danger" 
+            />
         </>
     );
 };

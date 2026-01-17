@@ -120,6 +120,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
             }
             
             fetchPendingInvites();
+            alert(`Authorization Revoked: All pending links for ${email} have been voided.`);
         } catch (err) {
             alert("Revoke Failure: " + err.message);
         } finally {

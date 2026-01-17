@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import React, { useMemo, useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
@@ -6,7 +5,7 @@ import type { Product, Customer, User, ReceiptSettingsData, Sale, Deposit, Custo
 import Card from './Card';
 import { 
     CustomersIcon, InventoryIcon, StaffIcon, InvestorIcon, WarningIcon, 
-    CloseIcon, AIIcon, LinkIcon, FINALIZED_SALE_STATUSES, StorefrontIcon, 
+    CloseIcon, LinkIcon, FINALIZED_SALE_STATUSES, StorefrontIcon, 
     ReportsIcon, ExpensesIcon, LightBulbIcon, CounterIcon, PlusIcon, 
     SearchIcon, CrownIcon, ShieldCheckIcon, TransactionIcon, UsersGroupIcon,
     PhoneIcon, CreditCardIcon, BankIcon, CalculatorIcon, TodayIcon
@@ -62,25 +61,6 @@ const ActionCard: React.FC<{ icon: React.ReactNode; label: string; count: number
     </NavLink>
 );
 
-const KPIMetric: React.FC<{ title: string; value: number | string; cs: string; colorClass?: string; caption?: string }> = ({ title, value, cs, colorClass = "text-slate-900 dark:text-white", caption }) => (
-    <div 
-        className="bg-white dark:bg-gray-900 p-10 rounded-[3rem] shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col justify-between h-full group hover:shadow-2xl transition-all cursor-help"
-        title={typeof value === 'number' ? formatCurrency(value, cs) : value}
-    >
-        <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 mb-6">{title}</p>
-            <p className={`text-4xl font-black ${colorClass} tracking-tighter tabular-nums leading-none`}>
-                {typeof value === 'number' ? `${cs}${formatAbbreviatedNumber(value)}` : value}
-            </p>
-        </div>
-        {caption && (
-            <div className="mt-8">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{caption}</p>
-            </div>
-        )}
-    </div>
-);
-
 interface DashboardProps {
     products: Product[];
     customers: Customer[];
@@ -114,7 +94,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
     const isOwner = currentUser?.role === 'Owner' || currentUser?.role === 'Super Admin';
     const isPrivileged = isOwner || currentUser?.role === 'Manager';
 
-    // Global Stats
+    // Global Stats - Wrap in useMemo for Enterprise Scaling (handles huge datasets)
     const stats = useMemo(() => {
         const safeSales = sales || [];
         const safeProducts = products || [];
@@ -139,7 +119,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
         const todaySales = finalizedSales.filter(s => s.date.startsWith(todayStr));
         const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
 
-        // RESTORED: Performance Insights Data
+        // Performance Insights Data
         const productVelocity = safeProducts.map(p => {
             const soldCount = finalizedSales.reduce((acc, s) => {
                 const item = s.items.find(i => i.product.id === p.id);
@@ -158,19 +138,18 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
             .slice(0, 3);
 
         return { 
-            totalRevenue, lifetimeGrossProfit, totalExpVal, netProfit, 
-            todayRevenue,
+            totalRevenue, netProfit, 
             todaySalesCount: todaySales.length,
             inventoryUnits: safeProducts.reduce((sum, p) => sum + p.stock, 0),
             topSelling,
             riskUnits
         };
-    }, [sales, products, expenses, users]);
+    }, [sales, products, expenses]);
 
-    // Equity and Withdrawal calculations for the Pill
+    // Equity and Withdrawal calculations
     const analytics = useMemo(() => {
         const participants = users.filter(u => (u.role === 'Owner' || u.role === 'Investor' || u.role === 'Super Admin') && u.status === 'Active');
-        const totalCapital = participants.reduce((sum, u) => sum + (u.initialInvestment || 0), 0);
+        const totalCapital = participants.reduce((sum, u) => sum + (u.initial_investment || u.initialInvestment || 0), 0);
         const myInv = currentUser?.initialInvestment || 0;
         const myShareRaw = totalCapital > 0 ? (myInv / totalCapital) : 0;
         
@@ -191,9 +170,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
         payouts: (expenseRequests || []).filter(r => r.status === 'pending').length, 
         staffPayments: (users || []).flatMap(u => u.customPayments || []).filter(p => p.status === 'pending_owner_approval').length,
         bankVerif: (sales || []).filter(s => s.status === 'pending_bank_verification').length,
-        expenseVerif: (anomalyAlerts || []).filter(a => !a.isDismissed).length,
-        aiAssistant: hasAccess(currentUser, 'AI', 'view_assistant', permissions) ? 1 : 0
-    }), [sales, expenseRequests, users, anomalyAlerts, currentUser, permissions]);
+    }), [sales, expenseRequests, users]);
 
     return (
         <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
@@ -209,20 +186,10 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                             <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter leading-none">{isPrivileged ? 'Command Center' : 'Operational Node'}</h2>
                             <div className="flex items-center gap-4 mt-6">
                                 <span className="px-5 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-[0.2em] border border-white/10">Principal: {currentUser?.name}</span>
-                                {pendingCounts.aiAssistant > 0 && (
-                                    <button 
-                                        onClick={() => navigate('/chat-help')}
-                                        className="px-5 py-1.5 bg-primary text-white rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-blue-600 transition-all flex items-center gap-2"
-                                    >
-                                        <AIIcon className="w-3.5 h-3.5" />
-                                        Consult AI Node
-                                    </button>
-                                )}
                             </div>
                         </div>
                     </div>
                     
-                    {/* RESTORED INVESTMENT PILL */}
                     <div className="bg-white dark:bg-gray-900 rounded-full border border-slate-100 dark:border-gray-800 p-2 flex items-center gap-1 shadow-sm">
                         <div className="px-8 py-4 border-r border-slate-100 dark:border-gray-800 text-center">
                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">My Investment</p>
@@ -236,7 +203,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                 </div>
             </div>
 
-            {/* RESTORED CORE STATS ROW */}
+            {/* CORE STATS ROW */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-2">
                 <StatCard icon={<UsersGroupIcon />} label="Total Clients" value={customers.length} />
                 <StatCard icon={<StaffIcon />} label="Total Staff" value={users.length} />
@@ -244,7 +211,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                 <StatCard icon={<InventoryIcon />} label="Inventory Units" value={stats.inventoryUnits} />
             </div>
 
-            {/* RESTORED: BUSINESS OVERVIEW SECTION */}
+            {/* BUSINESS OVERVIEW SECTION */}
             <div className="space-y-6">
                 <div className="flex items-center gap-5 px-4">
                     <div className="w-12 h-12 bg-slate-900 dark:bg-gray-800 rounded-2xl flex items-center justify-center text-white shadow-lg">
@@ -315,16 +282,15 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                 </div>
             </div>
 
-            {/* RESTORED MANAGEMENT ACTION CENTER */}
+            {/* MANAGEMENT ACTION CENTER */}
             {isPrivileged && (
                 <div className="bg-white dark:bg-gray-900 rounded-[3.5rem] p-10 shadow-sm border border-slate-100 dark:border-gray-800">
                     <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8">Management Action Center</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         <ActionCard icon={<PhoneIcon />} label="Client Orders" count={pendingCounts.clientOrders} link="/transactions" />
                         <ActionCard icon={<CreditCardIcon />} label="Pending Payouts" count={pendingCounts.payouts} link="/expense-requests" />
                         <ActionCard icon={<UsersGroupIcon />} label="Staff Payments" count={pendingCounts.staffPayments} link="/profile" />
                         <ActionCard icon={<BankIcon />} label="Bank Verification" count={pendingCounts.bankVerif} link="/receipts" />
-                        <ActionCard icon={<AIIcon />} label="AI Intelligence" count={pendingCounts.aiAssistant} link="/chat-help" />
                     </div>
                 </div>
             )}

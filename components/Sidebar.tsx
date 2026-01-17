@@ -1,11 +1,10 @@
-
 import React, { memo, useMemo, useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
     DashboardIcon, InventoryIcon, CustomersIcon, StaffIcon, ReceiptsIcon, ProformaIcon, 
     ExpensesIcon, ExpenseRequestIcon, SettingsIcon, LogoutIcon, TodayIcon, ReportsIcon, 
     CommissionIcon, InvestorIcon, ProfileIcon, TransactionIcon, CalculatorIcon, TruckIcon, BriefcaseIcon, 
-    ChevronDownIcon, WeeklyCheckIcon, BankIcon, AIIcon
+    ChevronDownIcon, WeeklyCheckIcon, BankIcon
 } from '../constants';
 import type { CartItem, User, AppPermissions, BusinessProfile, OwnerSettings, ModuleKey } from '../types';
 import { hasAccess } from '../lib/permissions';
@@ -48,7 +47,6 @@ const Sidebar: React.FC<SidebarProps> = ({ t, isOpen, setIsOpen, currentUser, on
     const allNavItems: Record<string, NavItem[]> = useMemo(() => ({
         main: [
             { to: '/dashboard', text: t('dashboard'), icon: <DashboardIcon /> },
-            { to: '/chat-help', text: 'Core Intelligence', icon: <AIIcon />, module: 'AI', action: 'view_assistant' },
             { to: '/today', text: t('today'), icon: <TodayIcon />, module: 'REPORTS', action: 'view_sales_reports' },
             { to: '/reports', text: t('reports'), icon: <ReportsIcon />, module: 'REPORTS', action: 'view_sales_reports' },
             { to: '/items', text: t('internalItems'), icon: <InventoryIcon />, module: 'SALES', action: 'view_counter' },

@@ -128,6 +128,23 @@ const App = () => {
     const [cart, setCart] = useState([]);
     const [businessProfile, setBusinessProfile] = useState(null);
 
+    // ENTERPRISE SCALING: Clear memory when switching business nodes
+    const clearStateLedger = () => {
+        setProducts([]);
+        setCustomers([]);
+        setUsers([]);
+        setSales([]);
+        setExpenses([]);
+        setDeposits([]);
+        setExpenseRequests([]);
+        setAnomalyAlerts([]);
+        setBankAccounts([]);
+        setBankTransactions([]);
+        setNotifications([]);
+        setCart([]);
+        setBusinessProfile(null);
+    };
+
     const syncIdentity = async (session) => {
         if (!session?.user) { setCurrentUser(null); setIsAuthLoading(false); return; }
         try {
@@ -136,6 +153,7 @@ const App = () => {
             const activeMship = mships?.find(m => m.business_id === activeBusinessId) || mships?.[0];
             if (activeMship) {
                 if (activeBusinessId !== activeMship.business_id) {
+                    clearStateLedger(); // Flush old business data
                     setActiveBusinessId(activeMship.business_id);
                     localStorage.setItem('fintab_active_business_id', activeMship.business_id);
                 }
@@ -184,7 +202,7 @@ const App = () => {
             if (!authListenerRef.current) {
                 const { data: { subscription } } = client.auth.onAuthStateChange(async (ev, sess) => {
                     setAuthUserId(sess?.user?.id || null);
-                    if (ev === 'SIGNED_OUT') { setCurrentUser(null); setActiveBusinessId(null); setIsAuthLoading(false); }
+                    if (ev === 'SIGNED_OUT') { clearStateLedger(); setCurrentUser(null); setActiveBusinessId(null); setIsAuthLoading(false); }
                     else if (sess) await syncIdentity(sess);
                 });
                 authListenerRef.current = subscription;

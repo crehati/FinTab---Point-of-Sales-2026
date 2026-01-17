@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { formatCurrency, getStoredItem } from '../lib/utils';
-import { AIIcon, CloseIcon, PlusIcon } from '../constants';
-import type { User, Sale, Product, Expense, Customer, ExpenseRequest, CashCount, GoodsCosting, GoodsReceiving, AnomalyAlert, BusinessSettingsData, ReceiptSettingsData, AppPermissions } from '../types';
+import { AIIcon, CloseIcon, PlusIcon, WarningIcon, ShieldCheckIcon } from '../constants';
+import type { User, Sale, Product, Expense, Customer, ExpenseRequest, AnomalyAlert, BusinessSettingsData, ReceiptSettingsData, AppPermissions } from '../types';
 import { hasAccess } from '../lib/permissions';
 
 interface AIAssistantProps {
@@ -31,76 +31,90 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
     const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string }[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [hasApiKey, setHasApiKey] = useState<boolean | null>(null); // null means checking
     const scrollRef = useRef<HTMLDivElement>(null);
 
+    const checkKeyStatus = async () => {
+        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+            try {
+                const hasKey = await window.aistudio.hasSelectedApiKey();
+                setHasApiKey(hasKey);
+            } catch (err) {
+                console.error("Auth Node Check Failure:", err);
+                setHasApiKey(false);
+            }
+        } else {
+            setHasApiKey(!!process.env.API_KEY);
+        }
+    };
+
+    useEffect(() => {
+        checkKeyStatus();
+    }, []);
+
+    const handleSelectKey = async () => {
+        if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+            try {
+                await window.aistudio.openSelectKey();
+                // Assume success per instructions to mitigate race conditions
+                setHasApiKey(true);
+            } catch (err) {
+                console.error("Select Key Protocol Failure:", err);
+            }
+        }
+    };
+
     const contextStr = useMemo(() => {
-        const safeSales = sales || [];
+        const safeSales = (sales || []).slice(0, 100); // Token safety
         const safeProducts = products || [];
         const safeExpenses = expenses || [];
         const cs = receiptSettings?.currencySymbol || '$';
 
         let str = `[TERMINAL CONTEXT: ${receiptSettings?.businessName || 'Business Portal'}]\n`;
-        str += `- Current User: ${currentUser?.name} (Role: ${currentUser?.role})\n`;
-        str += `- Registered Personnel: ${users?.length || 0} units\n`;
+        str += `- Current Identity: ${currentUser?.name} (${currentUser?.role})\n`;
         
-        // Detailed Staff Context
+        // Performance Stats
+        const totalRev = safeSales.filter(s => s.status === 'completed' || s.status === 'completed_bank_verified').reduce((s, x) => s + x.total, 0);
+        const totalExp = safeExpenses.filter(e => e.status !== 'deleted').reduce((s, e) => s + e.amount, 0);
+        const netValue = totalRev - totalExp;
+
+        str += `\n[FINANCIAL PERFORMANCE]\n- Lifetime Revenue: ${cs}${totalRev.toFixed(2)}\n- Total Debit Outflow: ${cs}${totalExp.toFixed(2)}\n- Estimated Liquidity: ${cs}${netValue.toFixed(2)}\n`;
+
+        // Staffing
         str += `\n[PERSONNEL ROSTER]\n`;
         users.forEach(u => {
             const staffSales = safeSales.filter(s => s.userId === u.id);
-            const staffYield = staffSales.reduce((s, x) => s + x.total, 0);
-            str += `- ${u.name} (${u.role}): Lifetime Sales ${cs}${staffYield.toFixed(2)}, Active: ${u.status}\n`;
+            const staffTotal = staffSales.reduce((s, x) => s + x.total, 0);
+            str += `- ${u.name} (${u.role}): ${cs}${staffTotal.toFixed(2)} lifetime yield\n`;
         });
 
-        // Authorization Pipeline Context
-        const pendingPayouts = expenseRequests.filter(r => r.status === 'pending');
-        str += `\n[VERIFICATION QUEUE]\n- Pending Expense Requests: ${pendingPayouts.length}\n`;
-        pendingPayouts.forEach(p => {
-            const requester = users.find(u => u.id === p.userId)?.name || 'Unknown';
-            str += `  * Request from ${requester}: ${cs}${p.amount.toFixed(2)} for ${p.category}\n`;
-        });
-
-        // Inventory Summary
-        const totalStock = safeProducts.reduce((s, p) => s + (p.stock || 0), 0);
+        // Inventory
         const lowStockItems = safeProducts.filter(p => (p.stock || 0) <= lowStockThreshold);
-        str += `\n[INVENTORY STATUS]\n- SKU Count: ${safeProducts.length}\n- Total Units: ${totalStock}\n- Low Stock Alerts: ${lowStockItems.length}\n`;
-        if (lowStockItems.length > 0) {
-            str += `- Top Low Stock: ${lowStockItems.slice(0, 3).map(p => `${p.name} (${p.stock})`).join(', ')}\n`;
-        }
-
-        // Financial Summary
-        const totalRev = safeSales.filter(s => s.status === 'completed').reduce((s, x) => s + x.total, 0);
-        const totalExp = safeExpenses.filter(e => e.status !== 'deleted').reduce((s, e) => s + e.amount, 0);
-        str += `\n[FINANCIAL HEALTH]\n- Lifetime Revenue: ${cs}${totalRev.toFixed(2)}\n- Total Outflow: ${cs}${totalExp.toFixed(2)}\n- Balance: ${cs}${(totalRev - totalExp).toFixed(2)}\n`;
-
+        str += `\n[ASSET HEALTH]\n- Registered SKU Count: ${safeProducts.length}\n- Critical Low Stock Alerts: ${lowStockItems.length}\n`;
+        
         return str;
-    }, [currentUser, sales, products, expenses, users, customers, anomalyAlerts, receiptSettings, permissions, lowStockThreshold, expenseRequests]);
+    }, [currentUser, sales, products, expenses, users, receiptSettings, lowStockThreshold]);
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
         const currentInput = input;
-        const newMessages = [...messages, { role: 'user' as const, text: currentInput }];
-        setMessages(newMessages);
+        setMessages(prev => [...prev, { role: 'user', text: currentInput }]);
         setInput('');
         setIsLoading(true);
 
         try {
+            // New instance created just-in-time for up-to-date API key injection
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [{ role: 'user', parts: [{ text: `Context:\n${contextStr}\n\nUser Question: ${currentInput}` }] }],
+                model: 'gemini-3-pro-preview',
+                contents: `Business Node Telemetry:\n${contextStr}\n\nClient Inquiry: ${currentInput}`,
                 config: {
-                    systemInstruction: `You are the FinTab Core Intelligence, a high-level business management advisor. 
-Your goal is to help the business owner optimize operations and manage staff effectively.
-
-Operational Guidelines:
-1. STAFF PERFORMANCE: Analyze who is selling the most and who needs support. Mention them by name if requested.
-2. VERIFICATION: Remind the user about pending expense requests or signatures needed from the context provided.
-3. INVENTORY: Flag critical stock issues before they become outages.
-4. FINANCIAL ADVICE: Based on revenue and expenses, suggest where they might save money or push for more sales.
-5. TONE: Be authoritative, data-driven, and highly professional. Use bullet points for complex data.
-6. LIMITATION: Never invent data. If the context string doesn't have the answer, say "Node data for this query is currently unavailable."
-7. SECURITY: Only the owner should see sensitive profit data; if the current user isn't an 'Owner', keep responses restricted to inventory and general sales counts.`
+                    systemInstruction: `You are the Core Intelligence of FinTab POS. 
+Your goal is to provide authoritative, data-driven business advice. 
+When asked for business value, synthesize the revenue, expense, and asset data provided in the telemetry.
+Always be professional and use structured lists for clarity.
+Security Protocol: If sensitive profit data is requested by non-owners, provide high-level inventory summaries instead.`
                 }
             });
 
@@ -108,8 +122,16 @@ Operational Guidelines:
                 setMessages(prev => [...prev, { role: 'model', text: response.text }]);
             }
         } catch (error) {
-            console.error("AI Node Error:", error);
-            setMessages(prev => [...prev, { role: 'model', text: "Protocol Error: Intelligence node connection failed. Please verify API configuration." }]);
+            console.error("Intelligence Node Failure:", error);
+            const errMsg = error.message || "";
+            
+            // Self-healing for auth errors
+            if (errMsg.includes("Requested entity was not found.")) {
+                setHasApiKey(false);
+                setMessages(prev => [...prev, { role: 'model', text: "Protocol Reset: Authorization node decommissioned. Please re-authenticate via the security prompt." }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'model', text: `Protocol Error: Intelligence node connection failed. Please verify API configuration and quota status.` }]);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -119,20 +141,67 @@ Operational Guidelines:
         scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isLoading]);
 
+    if (hasApiKey === null) {
+        return (
+            <div className="flex items-center justify-center h-[calc(100vh-14rem)] bg-white dark:bg-gray-900 rounded-[3rem]">
+                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
+    if (!hasApiKey) {
+        return (
+            <div className="flex flex-col items-center justify-center h-[calc(100vh-14rem)] bg-white dark:bg-gray-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-gray-800 p-12 text-center animate-fade-in font-sans">
+                <div className="w-24 h-24 bg-amber-50 dark:bg-amber-900/20 rounded-[2.5rem] flex items-center justify-center mb-8 border border-amber-100 dark:border-amber-800 shadow-inner">
+                    <WarningIcon className="w-12 h-12 text-amber-500" />
+                </div>
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tighter mb-4">Authorization Required</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium max-w-sm mb-10 leading-relaxed uppercase tracking-widest">
+                    To access Core Intelligence protocols, you must authorize a valid API key from a paid Google Cloud project.
+                </p>
+                <div className="space-y-4 w-full max-w-xs">
+                    <button 
+                        onClick={handleSelectKey}
+                        className="w-full py-5 bg-primary text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20 hover:bg-blue-700 active:scale-95 transition-all"
+                    >
+                        Initialize Auth Protocol
+                    </button>
+                    <a 
+                        href="https://ai.google.dev/gemini-api/docs/billing" 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="block text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-primary transition-colors"
+                    >
+                        Review Billing Requirements
+                    </a>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col h-[calc(100vh-14rem)] bg-white dark:bg-gray-900 rounded-[3rem] shadow-2xl border border-slate-100 dark:border-gray-800 overflow-hidden font-sans animate-fade-in">
             <header className="p-8 border-b dark:border-gray-800 bg-slate-900 text-white flex items-center justify-between relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                 <div className="flex items-center gap-6 relative z-10">
-                    <div className="bg-white/10 p-4 rounded-[1.5rem] backdrop-blur-md border border-white/10"><AIIcon className="w-8 h-8 text-primary" /></div>
+                    <div className="bg-white/10 p-4 rounded-[1.5rem] backdrop-blur-md border border-white/10 shadow-inner"><AIIcon className="w-8 h-8 text-primary" /></div>
                     <div>
                         <h2 className="text-2xl font-black uppercase tracking-tighter">Core Intelligence</h2>
                         <div className="flex items-center gap-2 mt-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Business Analysis Protocol v2.1</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protocol Secured • v2.2</p>
                         </div>
                     </div>
                 </div>
+                <button 
+                    onClick={() => setMessages([])}
+                    className="relative z-10 p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 hover:text-white transition-all active:scale-90"
+                    title="Clear Terminal Session"
+                >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
             </header>
 
             <main className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-slate-50/30 dark:bg-gray-950/30">
@@ -141,9 +210,9 @@ Operational Guidelines:
                         <div className="w-24 h-24 bg-slate-200 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6">
                             <AIIcon className="w-12 h-12 text-slate-400" />
                         </div>
-                        <h3 className="text-lg font-black uppercase tracking-[0.4em] text-slate-400">Awaiting Analysis Instruction</h3>
+                        <h3 className="text-lg font-black uppercase tracking-[0.4em] text-slate-400">Awaiting Instruction</h3>
                         <p className="mt-4 text-xs font-bold text-slate-400 max-w-xs mx-auto leading-relaxed uppercase tracking-widest">
-                            Ask about staff performance, pending requests, or inventory health.
+                            Inquire about node performance, valuation, or asset health.
                         </p>
                     </div>
                 )}
@@ -181,7 +250,7 @@ Operational Guidelines:
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                        placeholder="Inquire: 'Who is my top seller?' or 'Any pending tasks?'"
+                        placeholder="Inquire: 'Analyze business value' or 'Top staff performers?'"
                         className="flex-1 bg-slate-50 dark:bg-gray-950 border-none rounded-2xl px-8 py-5 text-sm font-bold shadow-inner focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                     />
                     <button 
@@ -189,7 +258,7 @@ Operational Guidelines:
                         disabled={isLoading || !input.trim()}
                         className="bg-slate-900 dark:bg-primary text-white px-10 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] shadow-2xl hover:opacity-90 active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-3"
                     >
-                        {isLoading ? 'Analysing...' : 'Execute'}
+                        {isLoading ? 'Processing...' : 'Execute'}
                     </button>
                 </div>
             </footer>

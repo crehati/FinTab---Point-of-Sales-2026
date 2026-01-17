@@ -191,8 +191,9 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
         payouts: (expenseRequests || []).filter(r => r.status === 'pending').length, 
         staffPayments: (users || []).flatMap(u => u.customPayments || []).filter(p => p.status === 'pending_owner_approval').length,
         bankVerif: (sales || []).filter(s => s.status === 'pending_bank_verification').length,
-        expenseVerif: (anomalyAlerts || []).filter(a => !a.isDismissed).length 
-    }), [sales, expenseRequests, users, anomalyAlerts]);
+        expenseVerif: (anomalyAlerts || []).filter(a => !a.isDismissed).length,
+        aiAssistant: hasAccess(currentUser, 'AI', 'view_assistant', permissions) ? 1 : 0
+    }), [sales, expenseRequests, users, anomalyAlerts, currentUser, permissions]);
 
     return (
         <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
@@ -208,10 +209,15 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                             <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter leading-none">{isPrivileged ? 'Command Center' : 'Operational Node'}</h2>
                             <div className="flex items-center gap-4 mt-6">
                                 <span className="px-5 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-[0.2em] border border-white/10">Principal: {currentUser?.name}</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Grid Status: Healthy</span>
-                                </div>
+                                {pendingCounts.aiAssistant > 0 && (
+                                    <button 
+                                        onClick={() => navigate('/chat-help')}
+                                        className="px-5 py-1.5 bg-primary text-white rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-blue-600 transition-all flex items-center gap-2"
+                                    >
+                                        <AIIcon className="w-3.5 h-3.5" />
+                                        Consult AI Node
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -283,7 +289,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                     <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden relative">
                          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                         <h4 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8">Low Selling / Risk Units</h4>
-                        <div className="bg-slate-50/50 dark:bg-gray-800/40 rounded-[2.5rem] border border-slate-50 dark:border-gray-700 overflow-hidden">
+                        <div className="bg-slate-50/50 dark:bg-gray-800/40 rounded-[2.5rem] border border-slate-100 dark:border-gray-700 overflow-hidden">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50/80 dark:bg-gray-800/80 text-[10px] font-black uppercase tracking-widest text-slate-400">
                                     <tr>
@@ -318,7 +324,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                         <ActionCard icon={<CreditCardIcon />} label="Pending Payouts" count={pendingCounts.payouts} link="/expense-requests" />
                         <ActionCard icon={<UsersGroupIcon />} label="Staff Payments" count={pendingCounts.staffPayments} link="/profile" />
                         <ActionCard icon={<BankIcon />} label="Bank Verification" count={pendingCounts.bankVerif} link="/receipts" />
-                        <ActionCard icon={<CalculatorIcon />} label="Expense Verification" count={pendingCounts.expenseVerif} link="/alerts" />
+                        <ActionCard icon={<AIIcon />} label="AI Intelligence" count={pendingCounts.aiAssistant} link="/chat-help" />
                     </div>
                 </div>
             )}

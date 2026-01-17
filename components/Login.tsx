@@ -48,7 +48,8 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (isRateLimited(`auth-${email || 'global'}`, 5000)) {
+        // Reduced rate limit from 5000ms to 1000ms for better UX
+        if (isRateLimited(`auth-${email || 'global'}`, 1000)) {
             setError("Security: Rate limit active. Wait before retrying.");
             return;
         }
@@ -149,7 +150,7 @@ const Login: React.FC<any> = ({ onEnterDemo }) => {
                             </div>
                         )}
                         {infoMessage && (
-                            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold rounded-xl border border-emerald-100 dark:border-emerald-900/30">
+                            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold rounded-xl border border-emerald-100 dark:border-rose-900/30">
                                 {infoMessage}
                             </div>
                         )}

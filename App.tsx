@@ -80,6 +80,37 @@ const App = () => {
     // Action Ref Lock - Prevent double execution
     const isActionProcessing = useRef(false);
     const authListenerRef = useRef(null);
+    const inactivityTimerRef = useRef(null);
+
+    // Auto-Logout Inactivity Logic (30 Minutes)
+    useEffect(() => {
+        if (!authUserId) {
+            if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+            return;
+        }
+
+        const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+        const resetInactivityTimer = () => {
+            if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+            inactivityTimerRef.current = setTimeout(async () => {
+                console.info("[FinTab Security] Inactivity threshold reached. Terminating session node.");
+                const client = await supabase.wait();
+                await client.auth.signOut();
+            }, INACTIVITY_LIMIT);
+        };
+
+        const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+        activityEvents.forEach(evt => document.addEventListener(evt, resetInactivityTimer));
+
+        // Initial trigger
+        resetInactivityTimer();
+
+        return () => {
+            if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+            activityEvents.forEach(evt => document.removeEventListener(evt, resetInactivityTimer));
+        };
+    }, [authUserId]);
 
     // State Ledger
     const [products, setProducts] = useState([]);

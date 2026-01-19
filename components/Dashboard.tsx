@@ -16,34 +16,10 @@ import UserDetailModal from './UserDetailModal';
 import { hasAccess } from '../lib/permissions';
 import AlertsWidget from './AlertsWidget';
 
-class WidgetErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-    constructor(props: { children: React.ReactNode }) {
-        super(props);
-        this.state = { hasError: false };
-    }
-    static getDerivedStateFromError() { return { hasError: true }; }
-    render() {
-        if (this.state.hasError) {
-            return (
-                <div className="p-10 bg-rose-50 dark:bg-rose-950/20 border-2 border-dashed border-rose-100 dark:border-rose-900/30 rounded-[3.5rem] text-center font-sans">
-                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-[0.2em]">Module Component Failure</p>
-                    <p className="text-[9px] text-rose-400 font-bold mt-2 uppercase tracking-widest leading-relaxed">Safety protocol engaged: Analytics node suspended to prevent terminal instability.</p>
-                </div>
-            );
-        }
-        return this.props.children;
-    }
-}
-
-const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: number | string }> = ({ icon, label, value }) => (
-    <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-50 dark:border-gray-800 flex items-center gap-6 group hover:shadow-xl transition-all">
-        <div className="p-4 bg-slate-50 dark:bg-gray-800 rounded-2xl text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-            {React.cloneElement(icon as React.ReactElement, { className: 'w-6 h-6' })}
-        </div>
-        <div>
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-            <p className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{value}</p>
-        </div>
+const SummaryMetricCard: React.FC<{ label: string; value: string | number; colorClass: string }> = ({ label, value, colorClass }) => (
+    <div className="bg-white dark:bg-gray-900 p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col items-center justify-center text-center min-h-[160px] flex-1 group hover:shadow-xl transition-all">
+        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">{label}</p>
+        <p className={`text-4xl font-black ${colorClass} tracking-tighter tabular-nums leading-none`}>{value}</p>
     </div>
 );
 
@@ -90,207 +66,95 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
     const cs = receiptSettings.currencySymbol;
     const navigate = useNavigate();
 
-    // Identity Checks
     const isOwner = currentUser?.role === 'Owner' || currentUser?.role === 'Super Admin';
     const isPrivileged = isOwner || currentUser?.role === 'Manager';
 
-    // Global Stats - Wrap in useMemo for Enterprise Scaling (handles huge datasets)
-    const stats = useMemo(() => {
-        const safeSales = sales || [];
-        const safeProducts = products || [];
-        const safeExpenses = expenses || [];
-
-        const finalizedSales = safeSales.filter(s => s && s.status && FINALIZED_SALE_STATUSES.includes(s.status));
-        const totalRevenue = finalizedSales.reduce((sum, s) => sum + (s.total || 0), 0);
+    // Robust Local-Time Financial Metrics
+    const dashboardStats = useMemo(() => {
+        // Use local ISO-date for filtering to match user input regardless of UTC offset
+        const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format
         
-        const lifetimeGrossProfit = finalizedSales.reduce((total, sale) => {
-            const cogs = (sale.items || []).reduce((sum, item) => {
-                const prod = safeProducts.find(p => p.id === item.product.id);
-                return sum + ((prod?.costPrice || 0) * item.quantity);
+        const todaySales = (sales || []).filter(s => s && s.date?.startsWith(todayStr) && FINALIZED_SALE_STATUSES.includes(s.status));
+        const todayRevenue = todaySales.reduce((sum, s) => sum + (s.total || 0), 0);
+        const todayDiscounts = todaySales.reduce((sum, s) => sum + (s.discount || 0), 0);
+        
+        const todayCOGS = todaySales.reduce((sum, s) => {
+            return sum + (s.items || []).reduce((itemSum, item) => {
+                const prod = (products || []).find(p => p.id === item.product.id);
+                // Fallback to 0 if product cost isn't set, ensuring Profit stays synced with Revenue
+                return itemSum + ((prod?.costPrice || 0) * item.quantity);
             }, 0);
-            return total + (sale.subtotal - sale.discount - cogs);
         }, 0);
 
-        const activeExpenses = safeExpenses.filter(e => e.status !== 'deleted');
-        const totalExpVal = activeExpenses.reduce((sum, e) => sum + e.amount, 0);
-        const netProfit = Math.max(0, lifetimeGrossProfit - totalExpVal);
-
-        const todayStr = new Date().toISOString().split('T')[0];
-        const todaySales = finalizedSales.filter(s => s.date.startsWith(todayStr));
-        const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
-
-        // Performance Insights Data
-        const productVelocity = safeProducts.map(p => {
-            const soldCount = finalizedSales.reduce((acc, s) => {
-                const item = s.items.find(i => i.product.id === p.id);
-                return acc + (item ? item.quantity : 0);
-            }, 0);
-            return { ...p, soldCount, holdingCost: p.stock * (p.costPrice || 0) };
-        });
-
-        const topSelling = [...productVelocity]
-            .sort((a, b) => b.soldCount - a.soldCount)
-            .slice(0, 3);
-
-        const riskUnits = [...productVelocity]
-            .filter(p => p.soldCount === 0 || p.stock > 100)
-            .sort((a, b) => b.holdingCost - a.holdingCost)
-            .slice(0, 3);
-
-        return { 
-            totalRevenue, netProfit, 
-            todaySalesCount: todaySales.length,
-            inventoryUnits: safeProducts.reduce((sum, p) => sum + p.stock, 0),
-            topSelling,
-            riskUnits
-        };
-    }, [sales, products, expenses]);
-
-    // Equity and Withdrawal calculations
-    const analytics = useMemo(() => {
-        const participants = users.filter(u => (u.role === 'Owner' || u.role === 'Investor' || u.role === 'Super Admin') && u.status === 'Active');
-        const totalCapital = participants.reduce((sum, u) => sum + (u.initial_investment || u.initialInvestment || 0), 0);
-        const myInv = currentUser?.initialInvestment || 0;
-        const myShareRaw = totalCapital > 0 ? (myInv / totalCapital) : 0;
+        // Gross Profit = Revenue (Net of discounts) - COGS
+        const todayGrossProfit = todayRevenue - todayCOGS; 
         
-        const distRate = (businessSettings.investorDistributionPercentage || 100) / 100;
-        const earnedTotal = stats.netProfit * myShareRaw * distRate;
-        const withdrawnTotal = (currentUser?.withdrawals || [])
-            .filter(w => w.status === 'completed')
-            .reduce((sum, w) => sum + w.amount, 0);
-        
+        const todayExpenses = (expenses || []).filter(e => e && e.date?.startsWith(todayStr) && e.status !== 'deleted').reduce((sum, e) => sum + e.amount, 0);
+        const todayNewCustomers = (customers || []).filter(c => c && c.joinDate?.startsWith(todayStr)).length;
+
         return {
-            myShare: (myShareRaw * 100).toFixed(1),
-            available: Math.max(0, earnedTotal - withdrawnTotal)
+            revenue: todayRevenue,
+            grossProfit: Math.max(0, todayGrossProfit),
+            expenses: todayExpenses,
+            newCustomers: todayNewCustomers,
+            discounts: todayDiscounts
         };
-    }, [users, currentUser, stats.netProfit, businessSettings]);
+    }, [sales, products, expenses, customers]);
 
     const pendingCounts = useMemo(() => ({
         clientOrders: (sales || []).filter(s => s.status === 'client_order').length,
-        payouts: (expenseRequests || []).filter(r => r.status === 'pending').length, 
+        cashDeposits: (deposits || []).filter(d => d.status === 'pending').length,
+        pendingPayouts: (users || []).flatMap(u => u.withdrawals || []).filter(w => ['pending', 'approved_by_owner'].includes(w.status)).length,
         staffPayments: (users || []).flatMap(u => u.customPayments || []).filter(p => p.status === 'pending_owner_approval').length,
         bankVerif: (sales || []).filter(s => s.status === 'pending_bank_verification').length,
-    }), [sales, expenseRequests, users]);
+        expenseVerif: (expenseRequests || []).filter(r => r.status === 'pending').length,
+    }), [sales, deposits, users, expenseRequests]);
 
     return (
         <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
-            {/* Executive Hero Block */}
-            <div className="bg-slate-900 rounded-[3.5rem] p-10 md:p-14 text-white shadow-2xl relative overflow-hidden border border-white/5 group">
-                <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/20 rounded-full -mr-48 -mt-48 blur-[130px] group-hover:scale-110 transition-transform duration-1000"></div>
-                <div className="relative flex flex-col md:flex-row justify-between items-center gap-12">
-                    <div className="flex items-center gap-10">
-                        <div className="w-24 h-24 bg-white/5 backdrop-blur-xl rounded-[2rem] flex items-center justify-center border border-white/10 shadow-inner">
-                            {isPrivileged ? <CrownIcon className="w-12 h-12 text-primary" /> : <StaffIcon className="w-12 h-12 text-primary" />}
-                        </div>
-                        <div>
-                            <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter leading-none">{isPrivileged ? 'Command Center' : 'Operational Node'}</h2>
-                            <div className="flex items-center gap-4 mt-6">
-                                <span className="px-5 py-1.5 bg-white/10 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-[0.2em] border border-white/10">Principal: {currentUser?.name}</span>
+            {/* GREETING HEADER: Restored for Node Context */}
+            <div className="bg-slate-900 rounded-[3.5rem] p-10 md:p-14 text-white shadow-2xl relative overflow-hidden border border-white/5">
+                <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/20 rounded-full -mr-48 -mt-48 blur-[130px]"></div>
+                <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-10">
+                    <div className="flex flex-col md:flex-row items-center gap-10 text-center md:text-left">
+                        <div className="relative">
+                            <img src={currentUser.avatarUrl} className="w-24 h-24 rounded-[2rem] object-cover border-4 border-white/10 shadow-2xl" />
+                            <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-emerald-500 rounded-full border-4 border-slate-900 flex items-center justify-center">
+                                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div className="bg-white dark:bg-gray-900 rounded-full border border-slate-100 dark:border-gray-800 p-2 flex items-center gap-1 shadow-sm">
-                        <div className="px-8 py-4 border-r border-slate-100 dark:border-gray-800 text-center">
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">My Investment</p>
-                            <p className="text-2xl font-black text-primary tabular-nums">{analytics.myShare}%</p>
-                        </div>
-                        <div className="px-8 py-4 text-center">
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Due To Me</p>
-                            <p className="text-2xl font-black text-emerald-500 tabular-nums">{cs}{formatAbbreviatedNumber(analytics.available)}</p>
+                        <div>
+                            <h1 className="text-4xl md:text-5xl font-black uppercase tracking-tighter leading-none">
+                                {businessProfile?.businessName || 'Welcome Node'}, {currentUser.name.split(' ')[0]}
+                            </h1>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] mt-6">
+                                Protocol Status: Operational • {new Date().toLocaleDateString(undefined, { dateStyle: 'full' })}
+                            </p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* CORE STATS ROW */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-2">
-                <StatCard icon={<UsersGroupIcon />} label="Total Clients" value={customers.length} />
-                <StatCard icon={<StaffIcon />} label="Total Staff" value={users.length} />
-                <StatCard icon={<ReportsIcon />} label="Today's Sales" value={stats.todaySalesCount} />
-                <StatCard icon={<InventoryIcon />} label="Inventory Units" value={stats.inventoryUnits} />
+            {/* PREFERRED SUMMARY BAR: Terminology and Color from Screenshot */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+                <SummaryMetricCard label="Revenue" value={`${cs}${formatAbbreviatedNumber(dashboardStats.revenue)}`} colorClass="text-emerald-500" />
+                <SummaryMetricCard label="Gross Profit" value={`${cs}${formatAbbreviatedNumber(dashboardStats.grossProfit)}`} colorClass="text-emerald-500" />
+                <SummaryMetricCard label="Expenses" value={`${cs}${formatAbbreviatedNumber(dashboardStats.expenses)}`} colorClass="text-rose-500" />
+                <SummaryMetricCard label="New Customers" value={dashboardStats.newCustomers} colorClass="text-primary" />
+                <SummaryMetricCard label="Discounts" value={`${cs}${formatAbbreviatedNumber(dashboardStats.discounts)}`} colorClass="text-warning" />
             </div>
 
-            {/* BUSINESS OVERVIEW SECTION */}
-            <div className="space-y-6">
-                <div className="flex items-center gap-5 px-4">
-                    <div className="w-12 h-12 bg-slate-900 dark:bg-gray-800 rounded-2xl flex items-center justify-center text-white shadow-lg">
-                        <TodayIcon className="w-6 h-6" />
-                    </div>
-                    <div>
-                        <h3 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight leading-none">Business Overview</h3>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.4em] mt-2">Platform Performance Hub</p>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* TOP SELLING UNITS */}
-                    <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden relative">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-                        <h4 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8">Top Selling Units</h4>
-                        <div className="bg-slate-50/50 dark:bg-gray-800/40 rounded-[2.5rem] border border-slate-50 dark:border-gray-700 overflow-hidden">
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50/80 dark:bg-gray-800/80 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                    <tr>
-                                        <th className="px-8 py-5">Unit Name</th>
-                                        <th className="px-8 py-5 text-center text-primary">Sales</th>
-                                        <th className="px-8 py-5 text-right">In Stock</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
-                                    {stats.topSelling.length > 0 ? stats.topSelling.map((p, i) => (
-                                        <tr key={i} className="hover:bg-white dark:hover:bg-gray-800 transition-colors">
-                                            <td className="px-8 py-6 text-xs font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate max-w-[200px]">{p.name}</td>
-                                            <td className="px-8 py-6 text-center font-black text-primary text-sm tabular-nums">{p.soldCount}</td>
-                                            <td className="px-8 py-6 text-right font-bold text-slate-400 text-[10px] uppercase tracking-widest">{p.stock} Units</td>
-                                        </tr>
-                                    )) : (
-                                        <tr><td colSpan={3} className="px-8 py-20 text-center text-[10px] font-black uppercase text-slate-300 tracking-[0.4em]">Zero Activity Registered</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    {/* LOW SELLING / RISK UNITS */}
-                    <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 shadow-sm border border-slate-100 dark:border-gray-800 overflow-hidden relative">
-                         <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-                        <h4 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8">Low Selling / Risk Units</h4>
-                        <div className="bg-slate-50/50 dark:bg-gray-800/40 rounded-[2.5rem] border border-slate-100 dark:border-gray-700 overflow-hidden">
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50/80 dark:bg-gray-800/80 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                    <tr>
-                                        <th className="px-8 py-5">Unit Name</th>
-                                        <th className="px-8 py-5 text-center text-rose-500">Sales</th>
-                                        <th className="px-8 py-5 text-right">Holding Cost</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
-                                    {stats.riskUnits.length > 0 ? stats.riskUnits.map((p, i) => (
-                                        <tr key={i} className="hover:bg-white dark:hover:bg-gray-800 transition-colors">
-                                            <td className="px-8 py-6 text-xs font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate max-w-[200px]">{p.name}</td>
-                                            <td className="px-8 py-6 text-center font-black text-rose-500 text-sm tabular-nums">{p.soldCount}</td>
-                                            <td className="px-8 py-6 text-right font-black text-slate-900 dark:text-white text-sm tabular-nums">{cs}{formatAbbreviatedNumber(p.holdingCost)}</td>
-                                        </tr>
-                                    )) : (
-                                        <tr><td colSpan={3} className="px-8 py-20 text-center text-[10px] font-black uppercase text-slate-300 tracking-[0.4em]">Grid Clean</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* MANAGEMENT ACTION CENTER */}
+            {/* Management Action Center */}
             {isPrivileged && (
                 <div className="bg-white dark:bg-gray-900 rounded-[3.5rem] p-10 shadow-sm border border-slate-100 dark:border-gray-800">
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8">Management Action Center</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-8">Verification Control Hub</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         <ActionCard icon={<PhoneIcon />} label="Client Orders" count={pendingCounts.clientOrders} link="/transactions" />
-                        <ActionCard icon={<CreditCardIcon />} label="Pending Payouts" count={pendingCounts.payouts} link="/expense-requests" />
+                        <ActionCard icon={<CalculatorIcon />} label="Cash Deposits" count={pendingCounts.cashDeposits} link="/transactions" />
+                        <ActionCard icon={<TransactionIcon />} label="Pending Payouts" count={pendingCounts.pendingPayouts} link="/profile" />
                         <ActionCard icon={<UsersGroupIcon />} label="Staff Payments" count={pendingCounts.staffPayments} link="/profile" />
                         <ActionCard icon={<BankIcon />} label="Bank Verification" count={pendingCounts.bankVerif} link="/receipts" />
+                        <ActionCard icon={<CalculatorIcon />} label="Expense Verification" count={pendingCounts.expenseVerif} link="/expense-requests" />
                     </div>
                 </div>
             )}
@@ -316,27 +180,24 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                     </div>
                 </div>
                 <div className="lg:col-span-1">
-                    <WidgetErrorBoundary>
-                        <AlertsWidget 
-                            alerts={anomalyAlerts || []} 
-                            onDismiss={() => {}} 
-                            onMarkRead={() => {}}
-                            receiptSettings={receiptSettings} 
-                            currentUser={currentUser}
-                            businessSettings={businessSettings}
-                        />
-                    </WidgetErrorBoundary>
+                    <AlertsWidget 
+                        alerts={anomalyAlerts || []} 
+                        onDismiss={() => {}} 
+                        onMarkRead={() => {}}
+                        receiptSettings={receiptSettings} 
+                        currentUser={currentUser}
+                        businessSettings={businessSettings}
+                    />
                 </div>
             </div>
 
-            {/* Interactive Quick Actions */}
+            {/* Terminal Actions */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <button onClick={() => navigate('/counter')} className="relative group p-10 bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 flex items-center gap-8 hover:scale-[1.03] transition-all overflow-hidden text-left">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -mr-12 -mt-12 blur-2xl group-hover:scale-150 transition-transform"></div>
                     <div className="p-6 bg-primary/10 rounded-3xl text-primary group-hover:bg-primary group-hover:text-white transition-colors shadow-inner"><PlusIcon className="w-8 h-8" /></div>
                     <div>
                         <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Issue Sale</h3>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Initialize Terminal Checkout</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Open Checkout Interface</p>
                     </div>
                 </button>
                 {isPrivileged && (
@@ -344,7 +205,7 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                         <div className="p-6 bg-emerald-50 dark:bg-emerald-950/30 rounded-3xl text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors shadow-inner"><InventoryIcon className="w-8 h-8" /></div>
                         <div>
                             <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Audit Inventory</h3>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Verified Asset Control</p>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Manage Asset Registry</p>
                         </div>
                     </button>
                 )}
@@ -352,19 +213,11 @@ const Dashboard: React.FC<DashboardProps> = (props) => {
                     <button onClick={() => navigate('/settings')} className="relative group p-10 bg-white dark:bg-gray-900 rounded-[3rem] shadow-xl border border-slate-50 dark:border-gray-800 flex items-center gap-8 hover:scale-[1.03] transition-all overflow-hidden text-left">
                         <div className="p-6 bg-amber-50 dark:bg-amber-950/30 rounded-3xl text-amber-600 group-hover:bg-amber-500 group-hover:text-white transition-colors shadow-inner"><ReportsIcon className="w-8 h-8" /></div>
                         <div>
-                            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Manage Node</h3>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Global System Tuning</p>
+                            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">Node Settings</h3>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2">Configure Global Protocol</p>
                         </div>
                     </button>
                 )}
-            </div>
-            
-            {/* System Health Footer */}
-            <div className="flex justify-center pt-8 opacity-40">
-                <div className="flex items-center gap-3 bg-white dark:bg-gray-900 px-6 py-2 rounded-full border border-slate-100 dark:border-gray-800">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <p className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-400">Node Hub: Synchronized & Authorized • v1.4.6</p>
-                </div>
             </div>
         </div>
     );

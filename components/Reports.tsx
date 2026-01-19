@@ -6,7 +6,8 @@ import type { Product, ReceiptSettingsData, User, Customer, AppPermissions, Owne
 import Card from './Card';
 import { hasAccess } from '../lib/permissions';
 import { formatCurrency, formatAbbreviatedNumber, exportToCsv, isRateLimited } from '../lib/utils';
-import { ReportsIcon, WarningIcon, DownloadJpgIcon } from '../constants';
+import { ReportsIcon, WarningIcon, DownloadJpgIcon, TodayIcon } from '../constants';
+import ReportFilterModal from './ReportFilterModal';
 
 interface ReportsProps {
     sales: any[];
@@ -35,30 +36,41 @@ const KPIMetric: React.FC<{ title: string; value: number | string; cs: string; c
 );
 
 const Reports: React.FC<ReportsProps> = ({ sales, products, expenses, customers, users, t, receiptSettings, currentUser, permissions, ownerSettings, ledgerEntries = [] }) => {
-    const [startDateStr, setStartDateStr] = useState<string>('');
-    const [endDateStr, setEndDateStr] = useState<string>('');
     const cs = receiptSettings.currencySymbol;
-
     const isPrivileged = hasAccess(currentUser, 'REPORTS', 'view_profit_reports', permissions);
+    
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
 
     const filteredLedger = useMemo(() => {
-        const start = startDateStr ? new Date(startDateStr) : null;
-        const end = endDateStr ? new Date(endDateStr) : null;
-        if (!start && !end) return ledgerEntries;
-        return ledgerEntries.filter(l => {
-            const d = new Date(l.created_at || l.date);
-            if (start && d < start) return false;
-            if (end) { const adj = new Date(end); adj.setHours(23,59,59,999); if (d > adj) return false; }
-            return true;
-        });
-    }, [ledgerEntries, startDateStr, endDateStr]);
+        let result = (ledgerEntries || []);
+        if (startDate) {
+            const start = new Date(`${startDate}T00:00:00`).getTime();
+            result = result.filter(l => new Date(l.created_at || l.date).getTime() >= start);
+        }
+        if (endDate) {
+            const end = new Date(`${endDate}T23:59:59`).getTime();
+            result = result.filter(l => new Date(l.created_at || l.date).getTime() <= end);
+        }
+        return result;
+    }, [ledgerEntries, startDate, endDate]);
 
     const metrics = useMemo(() => {
         const rev = filteredLedger.filter(l => l.type === 'SALE').reduce((s, l) => s + l.amount, 0);
         const exp = filteredLedger.filter(l => l.type === 'EXPENSE').reduce((s, l) => s + Math.abs(l.amount), 0);
-        const net = rev - exp;
-        return { rev, exp, net };
-    }, [filteredLedger]);
+        
+        const cogs = filteredLedger.filter(l => l.type === 'SALE').reduce((sum, l) => {
+            const sale = (sales || []).find(s => s.id === l.id);
+            if (!sale) return sum;
+            return sum + (sale.items || []).reduce((itemSum, item) => {
+                const p = (products || []).find(prod => prod.id === item.product.id);
+                return itemSum + ((p?.costPrice || 0) * item.quantity);
+            }, 0);
+        }, 0);
+
+        return { rev, exp, grossProfit: Math.max(0, rev - cogs) };
+    }, [filteredLedger, sales, products]);
 
     const handleExportLedger = () => {
         if (isRateLimited('export-ledger', 10000)) return;
@@ -72,7 +84,7 @@ const Reports: React.FC<ReportsProps> = ({ sales, products, expenses, customers,
                 <div className="text-center space-y-6">
                     <WarningIcon className="w-20 h-20 text-rose-500 mx-auto" />
                     <h2 className="text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Authorization Failure</h2>
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.4em]">Node clearance for Profit Analytics required.</p>
+                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.4em]">Access clearance for Profit Analytics required.</p>
                 </div>
             </div>
         );
@@ -88,41 +100,37 @@ const Reports: React.FC<ReportsProps> = ({ sales, products, expenses, customers,
                             <ReportsIcon className="w-10 h-10 text-primary" />
                         </div>
                         <div>
-                            <h1 className="text-5xl font-black uppercase tracking-tighter leading-none">Node Ledger</h1>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.5em] mt-6">Multi-Dimension Financial Governance Audit</p>
+                            <h1 className="text-5xl font-black uppercase tracking-tighter leading-none">Financial Ledger</h1>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.5em] mt-6">Enterprise Yield & Governance Audit</p>
                         </div>
                     </div>
-                    <div className="flex gap-4">
-                         <button onClick={handleExportLedger} className="px-12 py-5 bg-white/5 text-white rounded-[2rem] text-[11px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center gap-4 border border-white/10 backdrop-blur-md shadow-2xl">
-                             <DownloadJpgIcon className="w-5 h-5" /> Export Node CSV
+                    <div className="flex flex-wrap gap-4">
+                         <button 
+                            onClick={() => setIsFilterModalOpen(true)}
+                            className="px-12 py-5 bg-white/5 text-white rounded-[2rem] text-[11px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center gap-4 border border-white/10 backdrop-blur-md"
+                         >
+                             <TodayIcon className="w-5 h-5" /> {startDate || endDate ? `${startDate || '...'} - ${endDate || '...'}` : 'Filter Protocol'}
+                         </button>
+                         <button onClick={handleExportLedger} className="px-12 py-5 bg-white/5 text-white rounded-[2rem] text-[11px] font-black uppercase tracking-widest hover:bg-white/10 transition-all flex items-center gap-4 border border-white/10 backdrop-blur-md">
+                             <DownloadJpgIcon className="w-5 h-5" /> Export Protocol CSV
                          </button>
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-2">
-                <KPIMetric title="Gross Revenue" value={metrics.rev} cs={cs} colorClass="text-emerald-500" caption="Verified Inflow Sequences" />
-                <KPIMetric title="Operating Debt" value={metrics.exp} cs={cs} colorClass="text-rose-500" caption="Authorized Ledger Outflow" />
-                <div className="bg-primary text-white p-10 rounded-[3rem] shadow-[0_32px_64px_-12px_rgba(37,99,235,0.3)] flex flex-col justify-between group hover:-translate-y-1 transition-all lg:col-span-2">
-                    <div>
-                        <p className="text-[11px] font-black text-white/50 uppercase tracking-[0.4em] mb-8">Net Terminal Liquidity</p>
-                        <p className="text-6xl font-black tabular-nums tracking-tighter leading-none">{cs}{formatAbbreviatedNumber(metrics.net)}</p>
-                    </div>
-                    <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] mt-10">Authoritative Node Grid Balance</p>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 px-2">
+                <KPIMetric title="Revenue" value={metrics.rev} cs={cs} colorClass="text-emerald-500" caption="Gross Terminal Inflow" />
+                <KPIMetric title="Gross Profit" value={metrics.grossProfit} cs={cs} colorClass="text-emerald-500" caption="Pre-Operating Yield" />
+                <KPIMetric title="Expenses" value={metrics.exp} cs={cs} colorClass="text-rose-500" caption="Authorized Ledger Outflow" />
             </div>
 
             <div className="bg-white dark:bg-gray-900 rounded-[3.5rem] shadow-xl border border-slate-50 dark:border-gray-800 overflow-hidden">
-                <header className="px-10 py-10 border-b dark:border-gray-800 bg-slate-50/50 dark:bg-gray-800/50 flex flex-col sm:flex-row justify-between items-center gap-8">
+                <header className="px-10 py-10 border-b dark:border-gray-800 bg-slate-50/50 dark:bg-gray-800/50 flex justify-between items-center">
                     <div className="flex items-center gap-6">
-                        <div className="w-2 h-2 bg-primary rounded-full"></div>
-                        <h3 className="text-sm font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Audit Trail History</h3>
+                        <div className="w-2.5 h-2.5 bg-primary rounded-full"></div>
+                        <h3 className="text-sm font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Detailed Audit Trail</h3>
                     </div>
-                    <div className="flex items-center gap-4 w-full sm:w-auto">
-                        <input type="date" value={startDateStr} onChange={e => setStartDateStr(e.target.value)} className="bg-white dark:bg-gray-950 border-none rounded-2xl text-[10px] font-black uppercase py-3 px-6 shadow-inner outline-none w-full" />
-                        <span className="text-slate-300">→</span>
-                        <input type="date" value={endDateStr} onChange={e => setEndDateStr(e.target.value)} className="bg-white dark:bg-gray-950 border-none rounded-2xl text-[10px] font-black uppercase py-3 px-6 shadow-inner outline-none w-full" />
-                    </div>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filteredLedger.length} Sequence(s)</span>
                 </header>
                 <div className="table-wrapper border-none rounded-none">
                     <table className="w-full text-left">
@@ -151,13 +159,16 @@ const Reports: React.FC<ReportsProps> = ({ sales, products, expenses, customers,
                             ))}
                         </tbody>
                     </table>
-                    {filteredLedger.length === 0 && (
-                        <div className="py-40 text-center">
-                            <p className="text-[12px] font-black uppercase tracking-[0.5em] text-slate-300">Ledger Sequences Null</p>
-                        </div>
-                    )}
                 </div>
             </div>
+
+            <ReportFilterModal 
+                isOpen={isFilterModalOpen} 
+                onClose={() => setIsFilterModalOpen(false)} 
+                onApply={(s, e) => { setStartDate(s); setEndDate(e); }}
+                initialStart={startDate}
+                initialEnd={endDate}
+            />
         </div>
     );
 };

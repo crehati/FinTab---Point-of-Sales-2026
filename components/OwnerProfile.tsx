@@ -1,6 +1,5 @@
-
 // @ts-nocheck
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { User, Sale, ReceiptSettingsData, CustomPayment, BusinessSettingsData, Expense } from '../types';
 import Card from './Card';
@@ -23,7 +22,7 @@ interface OwnerProfileProps {
 }
 
 const SummaryMetric: React.FC<{ title: string; value: string; caption: string; colorClass?: string }> = ({ title, value, caption, colorClass = "text-slate-900 dark:text-white" }) => (
-    <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-50 dark:border-gray-800 flex flex-col justify-between h-full font-sans transition-all hover:shadow-xl group">
+    <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col justify-between h-full font-sans transition-all hover:shadow-xl group">
         <div>
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-4">{title}</p>
             <p className={`text-3xl font-black ${colorClass} tracking-tighter tabular-nums leading-none`}>{value}</p>
@@ -34,9 +33,10 @@ const SummaryMetric: React.FC<{ title: string; value: string; caption: string; c
 
 const OwnerProfile: React.FC<OwnerProfileProps> = ({ 
     currentUser, users, sales, expenses, netProfit, receiptSettings, businessSettings,
-    handleInitiateCustomPayment, handleUpdateCustomPaymentStatus, onSwitchUser
+    handleInitiateCustomPayment, handleUpdateCustomPaymentStatus, onSwitchUser, onUpdateCurrentUserProfile
 }) => {
     const [activeTab, setActiveTab] = useState<'governance' | 'analytics' | 'staff_ledger'>('governance');
+    const avatarInputRef = useRef<HTMLInputElement>(null);
     const cs = receiptSettings.currencySymbol || '$';
 
     const analyticsData = useMemo(() => {
@@ -77,17 +77,39 @@ const OwnerProfile: React.FC<OwnerProfileProps> = ({
         };
     }, [currentUser, users, netProfit, businessSettings]);
 
+    const handleAvatarClick = () => {
+        avatarInputRef.current?.click();
+    };
+
+    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                onUpdateCurrentUserProfile({ avatarUrl: reader.result as string });
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     return (
         <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
             <div className="bg-slate-900 rounded-[3.5rem] p-10 md:p-14 text-white shadow-2xl relative overflow-hidden border border-white/5">
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/20 rounded-full -mr-48 -mt-48 blur-[130px]"></div>
                 <div className="relative flex flex-col md:flex-row items-center justify-between gap-10">
                     <div className="flex flex-col md:flex-row items-center gap-10 text-center md:text-left">
-                        <div className="relative">
-                            <img src={currentUser.avatarUrl} className="w-28 h-28 rounded-[2.5rem] object-cover border-4 border-white/10 shadow-2xl" />
-                            <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary rounded-full border-4 border-slate-900 flex items-center justify-center">
+                        <div className="relative group cursor-pointer" onClick={handleAvatarClick}>
+                            <img src={currentUser.avatarUrl} className="w-28 h-28 rounded-[2.5rem] object-cover border-4 border-white/10 shadow-2xl transition-transform group-hover:scale-105" />
+                            <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary rounded-full border-4 border-slate-900 flex items-center justify-center z-10">
                                 <CrownIcon className="w-4 h-4 text-white" />
                             </div>
+                            <div className="absolute inset-0 bg-black/40 rounded-[2.5rem] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                            </div>
+                            <input type="file" ref={avatarInputRef} onChange={handleAvatarChange} className="hidden" accept="image/*" />
                         </div>
                         <div>
                             <h1 className="text-5xl md:text-6xl font-black uppercase tracking-tighter leading-none">{currentUser.name}</h1>

@@ -96,8 +96,10 @@ const App = () => {
             if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
             inactivityTimerRef.current = setTimeout(async () => {
                 console.info("[FinTab Security] Inactivity threshold reached. Terminating session node.");
-                const client = await supabase.wait();
-                await client.auth.signOut();
+                try {
+                    const client = await supabase.wait();
+                    await client.auth.signOut();
+                } catch (e) {}
             }, INACTIVITY_LIMIT);
         };
 
@@ -163,19 +165,62 @@ const App = () => {
                     avatarUrl: session.user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${session.user.id}`,
                     role: activeMship.role, initialInvestment: activeMship.initial_investment || 0,
                     status: 'Active', withdrawals: activeMship.metadata?.withdrawals || [],
-                    customPayments: activeMship.metadata?.customPayments || []
+                    customPayments: activeMship.metadata?.customPayments || [],
+                    phone: session.user.user_metadata?.phone || ''
                 });
             } else {
                 setCurrentUser({ id: session.user.id, email: session.user.email, role: 'Staff', status: 'Pending' });
             }
         } catch (err) { 
             console.error("Identity Sync Failed", err.message);
-            if (err.message.includes('Refresh Token')) {
+            if (err.message && err.message.includes('Refresh Token')) {
                 const client = await supabase.wait();
                 await client.auth.signOut();
             }
         } 
         finally { setIsAuthLoading(false); }
+    };
+
+    const handleUpdateCurrentUserProfile = async (profileData) => {
+        if (!currentUser) return;
+        try {
+            const client = await supabase.wait();
+            const { error } = await client.auth.updateUser({
+                data: {
+                    full_name: profileData.name || currentUser.name,
+                    avatar_url: profileData.avatarUrl || currentUser.avatarUrl,
+                    phone: profileData.phone || currentUser.phone
+                }
+            });
+
+            if (error) throw error;
+
+            // If updating investment (Owner role usually), update membership table
+            if (profileData.initialInvestment !== undefined && currentUser.role === 'Owner') {
+                const { error: mshipError } = await client.from('memberships')
+                    .update({ initial_investment: profileData.initialInvestment })
+                    .eq('business_id', activeBusinessId)
+                    .eq('user_id', currentUser.id);
+                if (mshipError) throw mshipError;
+            }
+
+            // Locally update the state immediately for reactive UI
+            setCurrentUser(prev => ({
+                ...prev,
+                name: profileData.name || prev.name,
+                avatarUrl: profileData.avatarUrl || prev.avatarUrl,
+                phone: profileData.phone || prev.phone,
+                initialInvestment: profileData.initialInvestment !== undefined ? profileData.initialInvestment : prev.initialInvestment
+            }));
+
+            // Sync full ledger to ensure all components see the change
+            await fetchLedger();
+            return true;
+        } catch (err) {
+            console.error("Profile Sync Failure:", err);
+            alert("Digital Identity Sync Failure: " + err.message);
+            return false;
+        }
     };
 
     const createSystemNotification = async (targetUserId, title, message, type, link = "") => {
@@ -194,18 +239,23 @@ const App = () => {
 
     useEffect(() => {
         const boot = async () => {
-            const client = await supabase.wait();
-            const { data: { session } } = await client.auth.getSession();
-            if (session) { setAuthUserId(session.user.id); await syncIdentity(session); }
-            else setIsAuthLoading(false);
+            try {
+                const client = await supabase.wait();
+                const { data: { session } } = await client.auth.getSession();
+                if (session) { setAuthUserId(session.user.id); await syncIdentity(session); }
+                else setIsAuthLoading(false);
 
-            if (!authListenerRef.current) {
-                const { data: { subscription } } = client.auth.onAuthStateChange(async (ev, sess) => {
-                    setAuthUserId(sess?.user?.id || null);
-                    if (ev === 'SIGNED_OUT') { clearStateLedger(); setCurrentUser(null); setActiveBusinessId(null); setIsAuthLoading(false); }
-                    else if (sess) await syncIdentity(sess);
-                });
-                authListenerRef.current = subscription;
+                if (!authListenerRef.current) {
+                    const { data: { subscription } } = client.auth.onAuthStateChange(async (ev, sess) => {
+                        setAuthUserId(sess?.user?.id || null);
+                        if (ev === 'SIGNED_OUT') { clearStateLedger(); setCurrentUser(null); setActiveBusinessId(null); setIsAuthLoading(false); }
+                        else if (sess) await syncIdentity(sess);
+                    });
+                    authListenerRef.current = subscription;
+                }
+            } catch (e) {
+                console.error("Supabase boot error:", e);
+                setIsAuthLoading(false);
             }
         };
         boot();
@@ -216,99 +266,97 @@ const App = () => {
         if (!activeBusinessId || !authUserId) return;
         try {
             const client = await supabase.wait();
-            const [prods, custs, sls, exps, banks, bankTx, alerts, biz, members, notes] = await Promise.all([
-                client.from('products').select('*').eq('business_id', activeBusinessId).order('name'),
-                client.from('customers').select('*').eq('business_id', activeBusinessId).order('name'),
-                client.from('sales').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }),
-                client.from('expenses').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }),
-                client.from('bank_accounts').select('*').eq('business_id', activeBusinessId).order('bank_name'),
-                client.from('bank_transactions').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }),
-                client.from('anomaly_alerts').select('*').eq('business_id', activeBusinessId).eq('is_dismissed', false),
-                client.from('businesses').select('*').eq('id', activeBusinessId).single(),
-                client.from('memberships').select('*').eq('business_id', activeBusinessId),
-                client.from('notifications').select('*').eq('business_id', activeBusinessId).eq('user_id', authUserId).order('created_at', { ascending: false })
-            ]);
+            
+            // INDIVIDUAL TABLE FETCHES: Resilient to single-table failures (CORS, missing table, etc)
+            const safeFetch = async (query, setter, mapper, fallback = []) => {
+                try {
+                    const { data, error } = await query;
+                    if (error) throw error;
+                    if (data) setter(mapper ? mapper(data) : data);
+                    else setter(fallback);
+                } catch (e) {
+                    // SILENT FALLBACK: If table is missing from schema, default to empty array instead of null
+                    setter(fallback);
+                    if (!e.message.includes('not find the table')) {
+                        console.warn(`[FinTab Ledger] SafeFetch Interrupted: ${e.message}`);
+                    }
+                }
+            };
 
-            if (prods.data) setProducts(prods.data.map(p => ({ 
-                ...p, 
-                price: parseFloat(p.price), 
-                costPrice: parseFloat(p.cost_price), 
-                stock: parseInt(p.stock), 
-                imageUrl: p.image_url,
-                stockHistory: p.stock_history || [],
-                commissionPercentage: p.commission_percentage
-            })));
-            if (custs.data) setCustomers(custs.data);
-            if (sls.data) setSales(sls.data.map(s => ({
-                ...s,
-                customerId: s.customer_id,
-                userId: s.user_id,
-                taxRate: s.tax_rate,
-                paymentMethod: s.payment_method,
-                cashReceived: s.cash_received,
-                bankReceiptNumber: s.bank_receipt_number,
-                bankName: s.bank_name,
-                bankAccountId: s.bank_account_id
-            })));
-            if (exps.data) setExpenses(exps.data.map(e => ({
-                ...e,
-                paymentSource: e.payment_source,
-                bankAccountId: e.bank_account_id
-            })));
-            if (banks.data) setBankAccounts(banks.data.map(b => ({ 
-                ...b, 
-                bankName: b.bank_name, 
-                accountName: b.account_name, 
-                accountNumber: b.account_number,
-                balance: parseFloat(b.balance)
-            })));
-            if (bankTx.data) setBankTransactions(bankTx.data.map(t => ({ 
-                ...t, 
-                bankAccountId: t.bank_account_id,
-                userId: t.user_id
-            })));
-            if (alerts.data) setAnomalyAlerts(alerts.data);
-            if (biz.data) setBusinessProfile({ businessName: biz.data.name, id: biz.data.id, ...biz.data.profile });
-            if (members.data) setUsers(members.data.map(m => ({ id: m.user_id, name: 'Unit ' + m.user_id.slice(-4), role: m.role, avatarUrl: `https://ui-avatars.com/api/?name=${m.user_id.slice(-4)}`, email: '...', status: 'Active', initialInvestment: m.initial_investment })));
-            if (notes.data) setNotifications(notes.data.map(n => ({
-                id: n.id,
-                title: n.title,
-                message: n.message,
-                type: n.type,
-                link: n.link,
-                isRead: n.is_read,
-                timestamp: n.created_at
-            })));
+            await Promise.all([
+                safeFetch(client.from('products').select('*').eq('business_id', activeBusinessId).order('name'), setProducts, (data) => data.map(p => ({ 
+                    ...p, price: parseFloat(p.price), costPrice: parseFloat(p.cost_price), stock: parseInt(p.stock), 
+                    imageUrl: p.image_url, stockHistory: p.stock_history || [], commissionPercentage: p.commission_percentage 
+                }))),
+                safeFetch(client.from('customers').select('*').eq('business_id', activeBusinessId).order('name'), setCustomers),
+                safeFetch(client.from('sales').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }), setSales, (data) => data.map(s => ({
+                    ...s, customerId: s.customer_id, userId: s.user_id, taxRate: s.tax_rate, paymentMethod: s.payment_method,
+                    cashReceived: s.cash_received, bankReceiptNumber: s.bank_receipt_number, bankName: s.bank_name, bankAccountId: s.bank_account_id
+                }))),
+                safeFetch(client.from('expenses').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }), setExpenses, (data) => data.map(e => ({
+                    ...e, paymentSource: e.payment_source, bankAccountId: e.bank_account_id
+                }))),
+                safeFetch(client.from('bank_accounts').select('*').eq('business_id', activeBusinessId).order('bank_name'), setBankAccounts, (data) => data.map(b => ({ 
+                    ...b, bankName: b.bank_name, accountName: b.account_name, accountNumber: b.account_number, balance: parseFloat(b.balance)
+                }))),
+                safeFetch(client.from('bank_transactions').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }), setBankTransactions, (data) => data.map(t => ({ 
+                    ...t, bankAccountId: t.bank_account_id, userId: t.user_id
+                }))),
+                safeFetch(client.from('anomaly_alerts').select('*').eq('business_id', activeBusinessId).eq('is_dismissed', false), setAnomalyAlerts),
+                safeFetch(client.from('businesses').select('*').eq('id', activeBusinessId).single(), setBusinessProfile, (data) => ({ businessName: data.name, id: data.id, ...data.profile }), null),
+                safeFetch(client.from('memberships').select('*').eq('business_id', activeBusinessId), setUsers, (data) => data.map(m => ({ id: m.user_id, name: 'Unit ' + m.user_id.slice(-4), role: m.role, avatarUrl: `https://ui-avatars.com/api/?name=${m.user_id.slice(-4)}`, email: '...', status: 'Active', initialInvestment: m.initial_investment }))),
+                safeFetch(client.from('notifications').select('*').eq('business_id', activeBusinessId).eq('user_id', authUserId).order('created_at', { ascending: false }), setNotifications, (data) => data.map(n => ({
+                    id: n.id, title: n.title, message: n.message, type: n.type, link: n.link, isRead: n.is_read, timestamp: n.created_at
+                }))),
+                safeFetch(client.from('deposits').select('*').eq('business_id', activeBusinessId).order('date', { ascending: false }), setDeposits)
+            ]);
         } catch (err) { console.error("Sync Failure", err.message); }
     };
 
     useEffect(() => { fetchLedger(); }, [activeBusinessId, authUserId]);
 
     const advanceWorkflow = async (requestId: string, nextStatus: string, note?: string) => {
-        const client = await supabase.wait();
-        await client.from('approval_requests').update({ status: nextStatus }).eq('id', requestId);
-        await client.from('approval_signatures').insert({ request_id: requestId, user_id: currentUser.id, status_assigned: nextStatus, note });
-        
-        const { data: originalReq } = await client.from('approval_requests').select('created_by, type').eq('id', requestId).single();
-        if (originalReq) {
-            await createSystemNotification(originalReq.created_by, "Workflow Update", `Your ${originalReq.type} request status has shifted to ${nextStatus.replace('_', ' ')}.`, "info", "");
-        }
+        try {
+            const client = await supabase.wait();
+            const { error: updError } = await client.from('approval_requests').update({ status: nextStatus }).eq('id', requestId);
+            if (updError) throw updError;
+            
+            const { error: sigError } = await client.from('approval_signatures').insert({ request_id: requestId, user_id: currentUser.id, status_assigned: nextStatus, note });
+            if (sigError) throw sigError;
+            
+            const { data: originalReq } = await client.from('approval_requests').select('created_by, type').eq('id', requestId).single();
+            if (originalReq) {
+                await createSystemNotification(originalReq.created_by, "Workflow Update", `Your ${originalReq.type} request status has shifted to ${nextStatus.replace('_', ' ')}.`, "info", "");
+            }
 
-        await fetchLedger();
-        return true;
+            await fetchLedger();
+            return true;
+        } catch (e) {
+            console.error("Workflow advancement error:", e);
+            alert("Workflow Error: " + e.message);
+            return false;
+        }
     };
 
     const initiateWorkflow = async (type: string, auditId: string, amount: number, metadata: any) => {
-        const client = await supabase.wait();
-        const { data } = await client.from('approval_requests').insert({ business_id: activeBusinessId, type, audit_link_id: auditId, amount, status: 'pending_v1', created_by: currentUser.id, metadata }).select().single();
-        
-        const owners = users.filter(u => u.role === 'Owner');
-        for (const owner of owners) {
-            await createSystemNotification(owner.id, "Verification Required", `A new ${type.replace('_', ' ')} protocol requires your authorization.`, "action_required", "/dashboard");
-        }
+        try {
+            const client = await supabase.wait();
+            const { data, error } = await client.from('approval_requests').insert({ business_id: activeBusinessId, type, audit_link_id: auditId, amount, status: 'pending_v1', created_by: currentUser.id, metadata }).select().single();
+            
+            if (error) throw error;
 
-        await fetchLedger();
-        return data.id;
+            const owners = users.filter(u => u.role === 'Owner');
+            for (const owner of owners) {
+                await createSystemNotification(owner.id, "Verification Required", `A new ${type.replace('_', ' ')} protocol requires your authorization.`, "action_required", "/dashboard");
+            }
+
+            await fetchLedger();
+            return data.id;
+        } catch (e) {
+            console.error("Workflow initiation error:", e);
+            alert("Workflow Initiation Failure: " + e.message);
+            return null;
+        }
     };
 
     const onApproveBankSale = async (saleId: string) => {
@@ -317,16 +365,21 @@ const App = () => {
         try {
             const client = await supabase.wait();
             const { data: sale, error: fetchErr } = await client.from('sales').select('*').eq('id', saleId).single();
-            if (fetchErr || sale.status === 'completed_bank_verified') {
+            if (fetchErr) throw fetchErr;
+            
+            if (sale.status === 'completed_bank_verified') {
                  isActionProcessing.current = false;
                  return;
             }
 
-            await client.from('sales').update({ status: 'completed_bank_verified' }).eq('id', saleId);
+            const { error: updateError } = await client.from('sales').update({ status: 'completed_bank_verified' }).eq('id', saleId);
+            if (updateError) throw updateError;
 
             for (const item of sale.items) {
                 const pid = item.product.id;
-                const { data: current } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
+                const { data: current, error: pError } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
+                if (pError) throw pError;
+                
                 if (current) {
                     const newStock = Math.max(0, current.stock - item.quantity);
                     const history = [{
@@ -337,7 +390,8 @@ const App = () => {
                         reason: `Verified Bank Sale Settlement (Ref: ${sale.id.slice(-8).toUpperCase()})`,
                         newStockLevel: newStock
                     }, ...(current.stock_history || [])];
-                    await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
+                    const { error: stockError } = await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
+                    if (stockError) throw stockError;
                 }
             }
 
@@ -356,7 +410,9 @@ const App = () => {
         isActionProcessing.current = true;
         try {
             const client = await supabase.wait();
-            await client.from('sales').update({ status: 'rejected_bank_not_verified', verification_note: reason }).eq('id', saleId);
+            const { error: updateError } = await client.from('sales').update({ status: 'rejected_bank_not_verified', verification_note: reason }).eq('id', saleId);
+            if (updateError) throw updateError;
+            
             const { data: sale } = await client.from('sales').select('user_id').eq('id', saleId).single();
             if (sale) {
                 await createSystemNotification(sale.user_id, "Bank Receipt Rejected", `Receipt for ${saleId.slice(-6).toUpperCase()} was flagged: ${reason}`, "error", "/receipts");
@@ -411,10 +467,18 @@ const App = () => {
                 business_id: activeBusinessId
             };
 
-            if (edit) await client.from('products').update(dbProduct).eq('id', d.id);
-            else await client.from('products').insert(dbProduct);
+            const { error } = edit 
+                ? await client.from('products').update(dbProduct).eq('id', d.id)
+                : await client.from('products').insert(dbProduct);
+            
+            if (error) throw error;
             await fetchLedger();
-        } catch (err) { alert("Integrity Error: Could not commit asset to cloud registry."); }
+            return true;
+        } catch (err) { 
+            console.error("Product Save Failure:", err);
+            alert("Integrity Error: Could not commit asset to cloud registry. Diagnostic: " + err.message); 
+            return false;
+        }
     };
 
     const handleSaveStockAdjustment = async (productId: string, adj: any) => {
@@ -426,9 +490,90 @@ const App = () => {
             const newStock = adj.type === 'add' ? product.stock + qty : product.stock - qty;
             const newHistoryItem = { date: new Date().toISOString(), userId: currentUser.id, type: adj.type, quantity: qty, reason: adj.reason, newStockLevel: newStock };
             const updatedHistory = [newHistoryItem, ...(product.stockHistory || [])];
-            await client.from('products').update({ stock: newStock, stock_history: updatedHistory }).eq('id', productId);
+            const { error } = await client.from('products').update({ stock: newStock, stock_history: updatedHistory }).eq('id', productId);
+            if (error) throw error;
             await fetchLedger();
-        } catch (err) { alert("Digital Logic Error: Could not commit stock shift to registry."); }
+        } catch (err) { alert("Digital Logic Error: Could not commit stock shift to registry. Diagnostic: " + err.message); }
+    };
+
+    const handleRequestDeposit = async (amt, desc, bankId) => {
+        try {
+            const client = await supabase.wait();
+            const { data: dep, error } = await client.from('deposits').insert({
+                business_id: activeBusinessId,
+                user_id: currentUser.id,
+                amount: amt,
+                description: desc,
+                bank_account_id: bankId,
+                status: 'pending',
+                date: new Date().toISOString()
+            }).select().single();
+            
+            if (error) throw error;
+
+            // NOTIFY OWNERS
+            const owners = users.filter(u => u.role === 'Owner' || u.role === 'Admin');
+            for (const owner of owners) {
+                await createSystemNotification(
+                    owner.id, 
+                    "New Deposit Request", 
+                    `${currentUser.name} requested a deposit of ${amt}. Verification required.`, 
+                    "payment", 
+                    "/transactions"
+                );
+            }
+
+            await fetchLedger();
+        } catch (err) {
+            alert("Deposit Flow Error: " + err.message);
+        }
+    };
+
+    const handleUpdateDepositStatus = async (id, status) => {
+        try {
+            const client = await supabase.wait();
+            const { data: deposit, error: fetchErr } = await client.from('deposits').select('*').eq('id', id).single();
+            if (fetchErr) throw fetchErr;
+
+            const { error: updError } = await client.from('deposits').update({ status }).eq('id', id);
+            if (updError) throw updError;
+
+            // If approved, update bank balance if a bank account was selected
+            if (status === 'approved' && deposit.bank_account_id) {
+                const { data: bank, error: bError } = await client.from('bank_accounts').select('balance').eq('id', deposit.bank_account_id).single();
+                if (bError) throw bError;
+                
+                if (bank) {
+                    const { error: accUpdError } = await client.from('bank_accounts').update({ balance: (bank.balance || 0) + deposit.amount }).eq('id', deposit.bank_account_id);
+                    if (accUpdError) throw accUpdError;
+
+                    const { error: txError } = await client.from('bank_transactions').insert({
+                        bank_account_id: deposit.bank_account_id,
+                        type: 'deposit',
+                        amount: deposit.amount,
+                        description: `Approved Cash Deposit: ${deposit.description}`,
+                        user_id: currentUser.id,
+                        business_id: activeBusinessId,
+                        date: new Date().toISOString(),
+                        reference_id: deposit.id
+                    });
+                    if (txError) throw txError;
+                }
+            }
+
+            // NOTIFY REQUESTER
+            await createSystemNotification(
+                deposit.user_id,
+                `Deposit ${status === 'approved' ? 'Verified' : 'Rejected'}`,
+                `Your deposit request for ${deposit.amount} was ${status} by ${currentUser.name}.`,
+                status === 'approved' ? 'success' : 'error',
+                "/transactions"
+            );
+
+            await fetchLedger();
+        } catch (err) {
+            alert("Status Update Protocol Failure: " + err.message);
+        }
     };
 
     const t = (k) => translations[language]?.[k] || k;
@@ -462,13 +607,17 @@ const App = () => {
                         </div>
                         <div className="flex items-center gap-2 md:gap-4">
                             <NotificationCenter notifications={notifications} onMarkAsRead={async (id)=>{
-                                const client = await supabase.wait();
-                                await client.from('notifications').update({ is_read: true }).eq('id', id);
-                                await fetchLedger();
+                                try {
+                                    const client = await supabase.wait();
+                                    await client.from('notifications').update({ is_read: true }).eq('id', id);
+                                    await fetchLedger();
+                                } catch (e) {}
                             }} onMarkAllAsRead={async ()=>{
-                                const client = await supabase.wait();
-                                await client.from('notifications').update({ is_read: true }).eq('user_id', authUserId);
-                                await fetchLedger();
+                                try {
+                                    const client = await supabase.wait();
+                                    await client.from('notifications').update({ is_read: true }).eq('user_id', authUserId);
+                                    await fetchLedger();
+                                } catch (e) {}
                             }} />
                             <Link to="/counter" className="relative p-2.5 rounded-2xl text-slate-400 hover:text-primary transition-all active:scale-95">
                                 <CounterIcon className="w-6 h-6" />
@@ -488,16 +637,19 @@ const App = () => {
                                     <Route path="dashboard" element={<Dashboard products={products} customers={customers} users={users} sales={sales} expenses={expenses} deposits={deposits} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} currentUser={currentUser} businessProfile={businessProfile} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} t={t} advanceWorkflow={advanceWorkflow} />} />
                                     <Route path="today" element={<Today sales={sales} customers={customers} expenses={expenses} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="reports" element={<Reports sales={sales} products={products} expenses={expenses} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} permissions={DEFAULT_PERMISSIONS} ownerSettings={DEFAULT_OWNER_SETTINGS} ledgerEntries={unifiedLedger} />} />
-                                    <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={handleSaveProduct} onSaveStockAdjustment={handleSaveStockAdjustment} onDeleteProduct={async (id) => { const client = await supabase.wait(); await client.from('products').delete().eq('id', id); await fetchLedger(); }} />} />
+                                    <Route path="inventory" element={<Inventory products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} users={users} currentUser={currentUser} handleSaveProduct={handleSaveProduct} onSaveStockAdjustment={handleSaveStockAdjustment} onDeleteProduct={async (id) => { const client = await supabase.wait(); const { error } = await client.from('products').delete().eq('id', id); if (error) alert("Purge Error: " + error.message); await fetchLedger(); }} />} />
                                     <Route path="counter" element={<Counter cart={cart} customers={customers} users={users} onClearCart={() => setCart([])} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} printerSettings={{autoPrint: false}} permissions={DEFAULT_PERMISSIONS} bankAccounts={bankAccounts} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} onSaveProforma={async (s) => {
                                         const client = await supabase.wait();
                                         const dbSale = { business_id: activeBusinessId, customer_id: s.customerId, user_id: s.userId, date: new Date(s.date).toISOString(), items: s.items, subtotal: s.subtotal, tax: s.tax, discount: s.discount, total: s.total, status: 'proforma', tax_rate: s.taxRate };
-                                        await client.from('sales').insert(dbSale);
+                                        const { error } = await client.from('sales').insert(dbSale);
+                                        if (error) alert("Proforma Error: " + error.message);
                                         await fetchLedger();
                                     }} onProcessSale={async (s) => { 
                                         const client = await supabase.wait(); 
-                                        const dbSale = { business_id: activeBusinessId, customer_id: s.customerId, user_id: s.userId, date: new Date(s.date).toISOString(), items: s.items, subtotal: s.subtotal, tax: s.tax, discount: s.discount, total: s.total, payment_method: s.paymentMethod, tax_rate: s.taxRate, status: s.status, cash_received: s.cashReceived, change: s.change, bank_receipt_number: s.bankReceiptNumber, bank_name: s.bankName, bank_account_id: s.bankAccountId };
-                                        const { data: saleData } = await client.from('sales').insert(dbSale).select().single(); 
+                                        const dbSale = { business_id: activeBusinessId, customer_id: s.customerId, user_id: s.userId, date: new Date(s.date).toISOString(), items: s.items, subtotal: s.subtotal, tax: s.tax, discount: s.discount, total: s.total, payment_method: s.payment_method, tax_rate: s.taxRate, status: s.status, cash_received: s.cashReceived, change: s.change, bank_receipt_number: s.bankReceiptNumber, bank_name: s.bankName, bank_account_id: s.bankAccountId };
+                                        const { data: saleData, error: saleError } = await client.from('sales').insert(dbSale).select().single(); 
+                                        if (saleError) { alert("Checkout Error: " + saleError.message); return; }
+
                                         if (s.status === 'pending_bank_verification') {
                                             const ownersAndVerifiers = users.filter(u => u.role === 'Owner' || u.role === 'BankVerifier');
                                             for (const recipient of ownersAndVerifiers) {
@@ -507,34 +659,36 @@ const App = () => {
                                         if (s.status !== 'pending_bank_verification') {
                                             for (const item of s.items) {
                                                 const pid = item.product.id;
-                                                const { data: current } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
+                                                const { data: current, error: pError } = await client.from('products').select('stock, stock_history').eq('id', pid).single();
+                                                if (pError) throw pError;
                                                 if (current) {
                                                     const newStock = Math.max(0, current.stock - item.quantity);
                                                     const history = [{ date: new Date().toISOString(), userId: currentUser.id, type: 'remove', quantity: item.quantity, reason: `POS Sale (Ref: ${saleData.id.slice(-8)})`, newStockLevel: newStock }, ...(current.stock_history || [])];
-                                                    await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
+                                                    const { error: stockUpdError } = await client.from('products').update({ stock: newStock, stock_history: history }).eq('id', pid);
+                                                    if (stockUpdError) throw stockUpdError;
                                                 }
                                             }
                                         }
                                         await fetchLedger(); 
-                                    }} onAddCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} />} />
+                                    }} onAddCustomer={async (d) => { const client = await supabase.wait(); const { error } = await client.from('customers').insert({...d, business_id: activeBusinessId}); if (error) alert("Identity Error: " + error.message); await fetchLedger(); }} />} />
                                     <Route path="cash-count" element={<CashCountPage sales={sales} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} initiateWorkflow={initiateWorkflow} advanceWorkflow={advanceWorkflow} t={t} />} />
                                     <Route path="bank-accounts" element={<BankAccountsPage bankAccounts={bankAccounts} bankTransactions={bankTransactions} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setBankAccounts={setBankAccounts} setBankTransactions={setBankTransactions} users={users} />} />
-                                    <Route path="transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} onRequestDeposit={async (amt, desc, bankId) => { const client = await supabase.wait(); await client.from('deposits').insert({ business_id: activeBusinessId, user_id: currentUser.id, amount: amt, description: desc, bank_account_id: bankId, status: 'pending' }); await fetchLedger(); }} onUpdateDepositStatus={async (id, status) => { const client = await supabase.wait(); await client.from('deposits').update({ status }).eq('id', id); await fetchLedger(); }} t={t} />} />
+                                    <Route path="transactions" element={<Transactions sales={sales} deposits={deposits} bankAccounts={bankAccounts} users={users} expenses={expenses} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} onRequestDeposit={handleRequestDeposit} onUpdateDepositStatus={handleUpdateDepositStatus} t={t} />} />
                                     <Route path="goods-costing" element={<GoodsCostingPage goodsCostings={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={createSystemNotification} />} />
                                     <Route path="goods-receiving" element={<GoodsReceivingPage goodsReceivings={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={createSystemNotification} />} />
                                     <Route path="weekly-inventory-check" element={<WeeklyInventoryCheckPage weeklyChecks={[]} products={products} users={users} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} businessSettings={DEFAULT_BUSINESS_SETTINGS} businessProfile={businessProfile} permissions={DEFAULT_PERMISSIONS} createNotification={createSystemNotification} t={t} />} />
-                                    <Route path="customers" element={<Customers customers={customers} handleSaveCustomer={async (d) => { const client = await supabase.wait(); await client.from('customers').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="customers" element={<Customers customers={customers} handleSaveCustomer={async (d) => { const client = await supabase.wait(); const { error } = await client.from('customers').insert({...d, business_id: activeBusinessId}); if (error) alert("Identity Error: " + error.message); await fetchLedger(); }} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
                                     <Route path="users" element={<Users users={users} activeBusinessId={activeBusinessId} currentUser={currentUser} />} />
                                     <Route path="investors" element={<InvestorPage users={users} netProfit={sales.reduce((s,x)=>s+x.total, 0) - expenses.reduce((s,x)=>s+x.amount, 0)} products={products} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} currentUser={currentUser} businessSettings={DEFAULT_BUSINESS_SETTINGS} permissions={DEFAULT_PERMISSIONS} initiateWorkflow={initiateWorkflow} />} />
-                                    <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} onApproveBankSale={onApproveBankSale} onRejectBankSale={onRejectBankSale} />} />
-                                    <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); await client.from('sales').delete().eq('id', id); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
-                                    <Route path="expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={async (d) => { const client = await supabase.wait(); await client.from('expenses').insert({...d, business_id: activeBusinessId}); await fetchLedger(); }} bankAccounts={bankAccounts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                    <Route path="expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={async (d) => { const client = await supabase.wait(); await client.from('expense_requests').insert({...d, business_id: activeBusinessId, user_id: currentUser.id}); await fetchLedger(); }} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} />} />
+                                    <Route path="receipts" element={<Receipts sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); const { error } = await client.from('sales').delete().eq('id', id); if (error) alert("Purge Error: " + error.message); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} onApproveBankSale={onApproveBankSale} onRejectBankSale={onRejectBankSale} />} />
+                                    <Route path="proforma" element={<Proforma sales={sales} customers={customers} users={users} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onDeleteSale={async (id) => { const client = await supabase.wait(); const { error } = await client.from('sales').delete().eq('id', id); if (error) alert("Purge Error: " + error.message); await fetchLedger(); }} currentUser={currentUser} printerSettings={{autoPrint: false}} />} />
+                                    <Route path="expenses" element={<Expenses expenses={expenses} setExpenses={setExpenses} handleSaveExpense={async (d) => { const client = await supabase.wait(); const { error } = await client.from('expenses').insert({...d, business_id: activeBusinessId}); if (error) alert("Debit Error: " + error.message); await fetchLedger(); }} bankAccounts={bankAccounts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
+                                    <Route path="expense-requests" element={<ExpenseRequestPage expenseRequests={expenseRequests} expenses={expenses} currentUser={currentUser} handleRequestExpense={async (d) => { const client = await supabase.wait(); const { error } = await client.from('expense_requests').insert({...d, business_id: activeBusinessId, user_id: currentUser.id}); if (error) alert("Request Error: " + error.message); await fetchLedger(); }} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} />} />
                                     <Route path="alerts" element={<AlertsPage anomalyAlerts={anomalyAlerts} currentUser={currentUser} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onMarkRead={() => {}} onDismiss={() => {}} />} />
                                     <Route path="items" element={<Items products={products} cart={cart} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} onUpdateCartItem={(p, v, q) => setCart(prev => { const idx = prev.findIndex(i => i.product.id === p.id && (!v || i.variant?.id === v.id)); if (q <= 0) return prev.filter((_, i) => i !== idx); if (idx > -1) { const up = [...prev]; up[idx].quantity = q; return up; } return [...prev, { product: p, variant: v, quantity: q, stock: v ? v.stock : p.stock }]; })} />} />
                                     <Route path="commission" element={<Commission products={products} setProducts={setProducts} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} />} />
-                                    <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} />} />
-                                    <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} />} />
+                                    <Route path="profile" element={<MyProfile currentUser={currentUser} users={users} sales={sales} expenses={expenses} customers={customers} products={products} netProfit={0} receiptSettings={DEFAULT_RECEIPT_SETTINGS} t={t} businessSettings={DEFAULT_BUSINESS_SETTINGS} ownerSettings={DEFAULT_OWNER_SETTINGS} businessProfile={businessProfile} onConfirmWithdrawalReceived={() => {}} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} />} />
+                                    <Route path="settings" element={<Settings language={language} setLanguage={setLanguage} t={t} currentUser={currentUser} users={users} receiptSettings={DEFAULT_RECEIPT_SETTINGS} setReceiptSettings={() => {}} businessSettings={DEFAULT_BUSINESS_SETTINGS} onUpdateBusinessSettings={() => {}} businessProfile={businessProfile} onUpdateBusinessProfile={() => {}} ownerSettings={DEFAULT_OWNER_SETTINGS} onUpdateOwnerSettings={() => {}} printerSettings={{autoPrint: false}} onUpdatePrinterSettings={() => {}} permissions={DEFAULT_PERMISSIONS} theme={theme} setTheme={setTheme} onUpdateCurrentUserProfile={handleUpdateCurrentUserProfile} />} />
                                     <Route path="onboarding" element={<Onboarding currentUser={currentUser} />} />
                                     <Route path="chat-help" element={<AIAssistant currentUser={currentUser} sales={sales} products={products} expenses={expenses} customers={customers} users={users} expenseRequests={expenseRequests} anomalyAlerts={anomalyAlerts} businessSettings={DEFAULT_BUSINESS_SETTINGS} lowStockThreshold={10} t={t} receiptSettings={DEFAULT_RECEIPT_SETTINGS} permissions={DEFAULT_PERMISSIONS} />} />
                                     <Route path="*" element={<Navigate to="dashboard" replace />} />

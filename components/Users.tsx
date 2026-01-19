@@ -97,15 +97,22 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
     };
 
     const revokeInvite = async (email: string, ids: string[]) => {
-        if (!confirm(`Confirm: Purge all pending invitations for ${email}?`)) return;
+        if (!confirm(`Authorize Purge: Permanently delete all pending invitations for ${email}?`)) return;
         setIsProcessing(true);
         try {
             const client = await supabase.wait();
             const { error } = await client.from('invitations').delete().in('id', ids);
-            if (error) throw error;
-            fetchPendingInvites();
+            
+            if (error) {
+                console.error("Supabase Delete Error:", error);
+                throw new Error(error.message || "Deletion blocked by security policy.");
+            }
+            
+            // Refresh list
+            await fetchPendingInvites();
+            alert(`Revocation successful for ${email}.`);
         } catch (err) {
-            alert("Revoke Failure: " + err.message);
+            alert("Revoke Failure: " + err.message + "\n\nTip: Ensure you have applied the 'Owners can revoke invites' SQL policy in Supabase.");
         } finally {
             setIsProcessing(false);
         }
@@ -116,18 +123,29 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
         setIsProcessing(true);
         try {
             const client = await supabase.wait();
+            
+            // SECURITY CHECK: Don't let users delete themselves here (to prevent locking themselves out)
+            if (userToTerminate.id === currentUser.id) {
+                throw new Error("Identity Protection: You cannot terminate your own master node from this interface.");
+            }
+
             const { error } = await client
                 .from('memberships')
                 .delete()
                 .eq('business_id', activeBusinessId)
                 .eq('user_id', userToTerminate.id);
             
-            if (error) throw error;
+            if (error) {
+                console.error("Supabase Membership Delete Error:", error);
+                throw new Error(error.message || "Termination blocked by security policy.");
+            }
             
             setUserToTerminate(null);
+            alert("Termination protocol complete. Node removed.");
+            // We reload to refresh the whole App state ledger (users, sales, etc.)
             window.location.reload(); 
         } catch (err) {
-            alert("Termination protocol failed: " + err.message);
+            alert("Termination protocol failed: " + err.message + "\n\nTip: Ensure the 'Owners can remove members' SQL policy is active.");
         } finally {
             setIsProcessing(false);
         }
@@ -188,9 +206,10 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                                                 {(currentUser.role === 'Owner' || currentUser.role === 'Super Admin') && u.id !== currentUser.id && (
                                                     <button 
                                                         onClick={() => setUserToTerminate(u)}
-                                                        className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all opacity-0 group-hover:opacity-100"
+                                                        disabled={isProcessing}
+                                                        className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all md:opacity-0 group-hover:opacity-100 disabled:opacity-30"
                                                     >
-                                                        Terminate
+                                                        {isProcessing ? 'Wait...' : 'Terminate'}
                                                     </button>
                                                 )}
                                             </td>
@@ -213,7 +232,14 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                                             </div>
                                             <div className="flex gap-2">
                                                 <button onClick={() => setInviteLinkToShow(`${window.location.origin}${window.location.pathname}#/invite?token=${inv.token}`)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-primary transition-all border border-slate-100 shadow-sm" title="Copy URI"><LinkIcon className="w-4 h-4" /></button>
-                                                <button onClick={() => revokeInvite(inv.invited_email, inv.duplicateIds)} className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm"><CloseIcon className="w-4 h-4" /></button>
+                                                <button 
+                                                    onClick={() => revokeInvite(inv.invited_email, inv.duplicateIds)} 
+                                                    disabled={isProcessing}
+                                                    className="p-2.5 bg-white dark:bg-gray-700 rounded-xl text-slate-400 hover:text-rose-500 transition-all border border-slate-100 shadow-sm disabled:opacity-30"
+                                                    title="Revoke Invitation"
+                                                >
+                                                    <CloseIcon className="w-4 h-4" />
+                                                </button>
                                             </div>
                                         </div>
                                         <p className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter truncate mb-1">{inv.invited_email}</p>
@@ -237,7 +263,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                         </div>
                     </div>
                     <button 
-                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Link copied.'); }} 
+                        onClick={() => { navigator.clipboard.writeText(inviteLinkToShow); alert('Link copied to clipboard.'); }} 
                         className="w-full py-6 bg-primary text-white rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl shadow-primary/30 active:scale-95 transition-all"
                     >
                         Copy to Clipboard
@@ -250,7 +276,7 @@ const Users: React.FC<{ users: User[], activeBusinessId: string, currentUser: Us
                 onClose={() => setUserToTerminate(null)}
                 onConfirm={terminateMembership}
                 title="Decommission Access?"
-                message={`Authorize the immediate removal of ${userToTerminate?.name} from this business node?`}
+                message={`Authorize the immediate removal of ${userToTerminate?.name} from this business node? All associated operational permissions will be revoked.`}
                 variant="danger"
                 isIrreversible
                 confirmLabel="Authorize Removal"

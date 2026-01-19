@@ -5,8 +5,9 @@ import type { Sale, ReceiptSettingsData, User, Customer, PrinterSettingsData } f
 import ReceiptModal from './ReceiptModal';
 import EmptyState from './EmptyState';
 import { formatCurrency } from '../lib/utils';
-import { ReceiptsIcon, CloseIcon, ShieldCheckIcon } from '../constants';
+import { ReceiptsIcon, TodayIcon } from '../constants';
 import { useNavigate } from 'react-router-dom';
+import ReportFilterModal from './ReportFilterModal';
 
 interface ReceiptsProps {
     sales: Sale[];
@@ -24,46 +25,35 @@ interface ReceiptsProps {
 
 const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receiptSettings, onDeleteSale, currentUser, isTrialExpired, printerSettings, onApproveBankSale, onRejectBankSale }) => {
     const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [activePreset, setActivePreset] = useState<string>('all');
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 5;
+    const itemsPerPage = 10;
     const navigate = useNavigate();
 
     const isVerifier = currentUser.role === 'Owner' || currentUser.role === 'BankVerifier' || currentUser.role === 'Super Admin';
 
-    const applyPreset = (preset: string) => {
-        setActivePreset(preset);
-        setCurrentPage(1);
-        const now = new Date();
-        let start = '';
-        let end = '';
-        const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-        switch (preset) {
-            case 'today': start = formatDate(now); end = formatDate(now); break;
-            case 'yesterday': const y = new Date(now); y.setDate(now.getDate() - 1); start = formatDate(y); end = formatDate(y); break;
-            case 'week': const w = new Date(now); w.setDate(now.getDate() - 7); start = formatDate(w); end = formatDate(now); break;
-            case 'month': const f = new Date(now.getFullYear(), now.getMonth(), 1); start = formatDate(f); end = formatDate(now); break;
-            default: start = ''; end = '';
+    const filteredSales = useMemo(() => {
+        let result = (sales || []).filter(sale => sale.status !== 'proforma');
+        
+        if (startDate) {
+            const start = new Date(`${startDate}T00:00:00`).getTime();
+            result = result.filter(s => new Date(s.date).getTime() >= start);
         }
-        setStartDate(start);
-        setEndDate(end);
-    };
-
-    const filteredAndSortedSales = useMemo(() => {
-        let filtered = (sales || []).filter(sale => sale.status !== 'proforma');
-        if (startDate) { const s = new Date(`${startDate}T00:00:00`); filtered = filtered.filter(sale => new Date(sale.date) >= s); }
-        if (endDate) { const e = new Date(`${endDate}T23:59:59`); filtered = filtered.filter(sale => new Date(sale.date) <= e); }
-        return filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        if (endDate) {
+            const end = new Date(`${endDate}T23:59:59`).getTime();
+            result = result.filter(s => new Date(s.date).getTime() <= end);
+        }
+        
+        return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [sales, startDate, endDate]);
 
-    const totalPages = Math.ceil(filteredAndSortedSales.length / itemsPerPage);
+    const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
     const paginatedSales = useMemo(() => {
         const start = (currentPage - 1) * itemsPerPage;
-        return filteredAndSortedSales.slice(start, start + itemsPerPage);
-    }, [filteredAndSortedSales, currentPage]);
+        return filteredSales.slice(start, start + itemsPerPage);
+    }, [filteredSales, currentPage]);
     
     const getStatusBadge = (status: Sale['status']) => {
         const isApproved = ['completed', 'completed_bank_verified', 'approved_by_owner'].includes(status);
@@ -80,41 +70,23 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
 
     return (
         <div className="max-w-7xl mx-auto space-y-10 font-sans pb-24 px-4 sm:px-6 lg:px-10">
-            <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl p-8 sm:p-12 border border-slate-50 dark:border-gray-800">
+            <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-2xl p-8 sm:p-12 border border-slate-100 dark:border-gray-800">
                  <div className="flex flex-col lg:flex-row justify-between items-start gap-10 mb-12">
                     <div>
                         <h2 className="text-4xl font-extrabold text-slate-900 dark:text-white uppercase tracking-tighter leading-none">{t('receipts')}</h2>
                         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">Transaction Lifecycle Audit Ledger</p>
                     </div>
-                    
-                    <div className="w-full lg:w-auto bg-slate-50 dark:bg-gray-800/50 p-6 sm:p-8 rounded-[2.5rem] border border-slate-100 dark:border-gray-800 shadow-inner">
-                        <div className="space-y-6">
-                            <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
-                                {[
-                                    { id: 'all', label: 'All Time' },
-                                    { id: 'today', label: 'Today' },
-                                    { id: 'yesterday', label: 'Yesterday' },
-                                    { id: 'week', label: 'Last 7D' },
-                                    { id: 'month', label: 'This Month' }
-                                ].map(preset => (
-                                    <button key={preset.id} onClick={() => applyPreset(preset.id)} className={`px-5 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${activePreset === preset.id ? 'bg-primary text-white shadow-lg' : 'bg-white dark:bg-gray-900 text-slate-400 hover:text-slate-600 border border-slate-100 dark:border-gray-800'}`}>{preset.label}</button>
-                                ))}
-                            </div>
-                            
-                            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto] items-center gap-4">
-                                <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setActivePreset('custom'); setCurrentPage(1); }} className="!py-3 !px-4 bg-white dark:bg-gray-900 text-xs font-bold rounded-2xl" />
-                                <span className="text-slate-300 font-bold hidden sm:block">→</span>
-                                <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setActivePreset('custom'); setCurrentPage(1); }} className="!py-3 !px-4 bg-white dark:bg-gray-900 text-xs font-bold rounded-2xl" />
-                                {(startDate || endDate) && (
-                                    <button onClick={() => applyPreset('all')} className="p-3 text-slate-400 hover:text-rose-500 bg-white dark:bg-gray-900 rounded-xl border border-slate-100 dark:border-gray-800"><CloseIcon className="w-4 h-4" /></button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                    <button 
+                        onClick={() => setIsFilterModalOpen(true)}
+                        className="flex items-center gap-3 px-8 py-4 bg-slate-50 dark:bg-gray-800 rounded-2xl text-slate-600 dark:text-slate-300 font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-all border border-slate-100 dark:border-gray-700"
+                    >
+                        <TodayIcon className="w-4 h-4" />
+                        {startDate || endDate ? `${startDate || '...'} to ${endDate || '...'}` : 'Filter by Date'}
+                    </button>
                 </div>
 
                 <div className="min-h-[400px]">
-                    {filteredAndSortedSales.length > 0 ? (
+                    {filteredSales.length > 0 ? (
                         <>
                             <div className="table-wrapper hidden md:block border dark:border-gray-800 rounded-[2.5rem] overflow-hidden">
                                 <table className="w-full text-sm text-left">
@@ -132,7 +104,7 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                                         {paginatedSales.map(sale => {
                                             const customer = customers.find(c => c.id === sale.customerId);
                                             return (
-                                                <tr key={sale.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                                                <tr key={sale.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/30 transition-colors group">
                                                     <td className="px-8 py-6"><button onClick={() => setSelectedSale(sale)} className="text-[11px] font-black text-primary hover:underline uppercase tracking-tight">{sale.id.slice(-6).toUpperCase()}</button></td>
                                                     <td className="px-8 py-6 text-slate-500 dark:text-slate-400 tabular-nums text-xs font-medium">{new Date(sale.date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
                                                     <td className="px-8 py-6 font-bold text-slate-800 dark:text-slate-200 uppercase text-xs">{customer?.name || 'Guest Identity'}</td>
@@ -193,11 +165,19 @@ const Receipts: React.FC<ReceiptsProps> = ({ sales, customers, users, t, receipt
                             )}
                         </>
                     ) : (
-                        <EmptyState icon={<ReceiptsIcon />} title="No transactional records" description="Adjust your audit horizon to find matching estimations or process a new sale." action={{ label: "Go to Counter", onClick: () => navigate('/counter') }} />
+                        <EmptyState icon={<ReceiptsIcon />} title="No transactional records" description="Processed sales will appear here in the audit ledger." action={{ label: "Go to Counter", onClick: () => navigate('/counter') }} />
                     )}
                 </div>
             </div>
             {selectedSale && <ReceiptModal sale={selectedSale} customers={customers} users={users} onClose={() => setSelectedSale(null)} receiptSettings={receiptSettings} onDelete={onDeleteSale} currentUser={currentUser} t={t} isTrialExpired={isTrialExpired} printerSettings={printerSettings} />}
+            
+            <ReportFilterModal 
+                isOpen={isFilterModalOpen} 
+                onClose={() => setIsFilterModalOpen(false)} 
+                onApply={(s, e) => { setStartDate(s); setEndDate(e); setCurrentPage(1); }}
+                initialStart={startDate}
+                initialEnd={endDate}
+            />
         </div>
     );
 };

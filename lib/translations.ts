@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 export const translations: Record<string, any> = {
   en: {
@@ -90,7 +89,7 @@ export const translations: Record<string, any> = {
     currency: 'Currency & Nodes',
     valuation: 'Valuation & COGS',
     velocity: 'Product Velocity',
-    pipeline: 'Transaction Pipeline',
+    pipeline: 'Cash Transactions',
     
     // Inventory Check
     weeklyCheck: 'Weekly Inventory Check',

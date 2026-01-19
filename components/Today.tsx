@@ -1,201 +1,270 @@
+
 // @ts-nocheck
 import React, { useMemo } from 'react';
-import type { Sale, Customer, ReceiptSettingsData, Expense, Product } from '../types';
+import { useNavigate } from 'react-router-dom';
+import type { Sale, Customer, ReceiptSettingsData, Expense, Product, ExpenseRequest, AnomalyAlert } from '../types';
 import Card from './Card';
 import EmptyState from './EmptyState';
 import { formatCurrency, formatAbbreviatedNumber } from '../lib/utils';
-import { FINALIZED_SALE_STATUSES, StorefrontIcon, InventoryIcon, TodayIcon } from '../constants';
+import { 
+    FINALIZED_SALE_STATUSES, 
+    StorefrontIcon, 
+    InventoryIcon, 
+    TodayIcon, 
+    PlusIcon, 
+    CustomersIcon, 
+    ReportsIcon, 
+    WarningIcon, 
+    CalculatorIcon,
+    TransactionIcon,
+    ChevronDownIcon
+} from '../constants';
 
 interface TodayProps {
     sales: Sale[];
     customers: Customer[];
     expenses: Expense[];
     products: Product[];
+    expenseRequests?: ExpenseRequest[];
+    anomalyAlerts?: AnomalyAlert[];
     t: (key: string) => string;
     receiptSettings: ReceiptSettingsData;
 }
 
-const KPIMetric: React.FC<{ title: string; value: string; cs: string; colorClass?: string; trend?: string }> = ({ title, value, cs, colorClass = "text-slate-900 dark:text-white", trend }) => (
-    <div className="bg-white dark:bg-gray-900 p-8 rounded-[3rem] shadow-sm border border-slate-100 dark:border-gray-800 flex flex-col justify-between h-full group hover:shadow-xl transition-all">
-        <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 mb-6">{title}</p>
-            <p className={`text-4xl font-black ${colorClass} tracking-tighter tabular-nums leading-none`}>
-                {value}
-            </p>
+const NavButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void; color?: string }> = ({ icon, label, onClick, color = "bg-white dark:bg-gray-900" }) => (
+    <button 
+        onClick={onClick}
+        className={`${color} flex items-center gap-3 px-6 py-4 rounded-2xl border border-slate-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-all active:scale-95 group flex-1 min-w-[140px]`}
+    >
+        <div className="text-primary group-hover:scale-110 transition-transform">
+            {icon}
         </div>
-        {trend && (
-            <div className="mt-8 flex items-center gap-3">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{trend}</p>
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300">{label}</span>
+    </button>
+);
+
+const AlertItem: React.FC<{ label: string; count: number; onClick: () => void; type?: 'danger' | 'warning' | 'info' }> = ({ label, count, onClick, type = 'info' }) => {
+    if (count === 0) return null;
+    const colors = {
+        danger: 'bg-rose-50 text-rose-600 border-rose-100',
+        warning: 'bg-amber-50 text-amber-600 border-amber-100',
+        info: 'bg-blue-50 text-blue-600 border-blue-100'
+    };
+    return (
+        <div className={`flex items-center justify-between p-4 rounded-2xl border ${colors[type]} group animate-fade-in`}>
+            <div className="flex items-center gap-3">
+                <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+                <p className="text-[10px] font-black uppercase tracking-widest">{label}</p>
             </div>
-        )}
+            <div className="flex items-center gap-3">
+                <span className="font-black text-sm tabular-nums">{count}</span>
+                <button onClick={onClick} className="px-3 py-1 bg-white/40 hover:bg-white rounded-lg text-[8px] font-black uppercase tracking-widest transition-all">Action</button>
+            </div>
+        </div>
+    );
+};
+
+const SnapshotMetric: React.FC<{ label: string; value: string | number; subValue?: string }> = ({ label, value, subValue }) => (
+    <div className="p-6 bg-slate-50/50 dark:bg-gray-800/30 rounded-3xl border border-slate-100 dark:border-gray-800">
+        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">{label}</p>
+        <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter leading-none">{value}</p>
+        {subValue && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-2">{subValue}</p>}
     </div>
 );
 
-const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, t, receiptSettings }) => {
-    // Local date identification for immediate data sync
+const Today: React.FC<TodayProps> = ({ sales, customers, expenses, products, expenseRequests = [], anomalyAlerts = [], t, receiptSettings }) => {
+    const navigate = useNavigate();
     const todayString = new Date().toLocaleDateString('en-CA');
     const cs = receiptSettings.currencySymbol;
 
     const todaysSales = useMemo(() => 
         (sales || []).filter(sale => 
             sale && sale.date && sale.date.startsWith(todayString) && FINALIZED_SALE_STATUSES.includes(sale.status)
-        ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
+        ), 
     [sales, todayString]);
 
-    const todaysRevenue = useMemo(() => 
-        todaysSales.reduce((sum, sale) => sum + (sale.total || 0), 0),
-    [todaysSales]);
-    
-    const todaysGrossProfit = useMemo(() => {
-        return todaysSales.reduce((totalProfit: number, sale): number => {
-            const saleRevenue = (sale.subtotal as number || 0) - (sale.discount as number || 0);
-            const costOfGoodsSold = (sale.items || []).reduce((cogs: number, item): number => {
-                const product = (products || []).find(p => p.id === item.product.id);
-                const costPrice = product ? product.costPrice : 0;
-                return cogs + (costPrice * item.quantity);
-            }, 0);
-            return totalProfit + (todaysRevenue - costOfGoodsSold);
-        }, 0);
-    }, [todaysSales, products, todaysRevenue]);
+    const metrics = useMemo(() => {
+        const revenue = todaysSales.reduce((sum, s) => sum + (s.total || 0), 0);
+        const count = todaysSales.length;
+        const avg = count > 0 ? revenue / count : 0;
 
-    const todaysExpenses = useMemo(() =>
-        (expenses || [])
-            .filter(expense => expense && expense.status !== 'deleted' && expense.date && expense.date.startsWith(todayString))
-            .reduce((sum, expense) => sum + expense.amount, 0),
-    [expenses, todayString]);
-
-    const todaysDiscounts = useMemo(() =>
-        todaysSales.reduce((sum, sale) => sum + (sale.discount || 0), 0),
-    [todaysSales]);
-
-    const topTodaysProducts = useMemo(() => {
-        const productQuantities = todaysSales.reduce((acc: Record<string, number>, sale) => {
-            (sale.items || []).forEach(item => {
-                const prev = acc[item.product.id] || 0;
-                acc[item.product.id] = prev + Number(item.quantity);
+        const productQtyMap = todaysSales.reduce((acc, s) => {
+            s.items.forEach(i => {
+                acc[i.product.name] = (acc[i.product.name] || 0) + i.quantity;
             });
             return acc;
         }, {} as Record<string, number>);
 
-        return Object.entries(productQuantities)
-            .sort(([, qtyA], [, qtyB]) => (qtyB as number) - (qtyA as number))
-            .slice(0, 5)
-            .map(([productId, quantity]) => {
-                const product = (products || []).find(p => p.id === productId);
-                return {
-                    name: product ? product.name : 'Unknown Asset',
-                    quantity: quantity as number,
-                };
-            });
-    }, [todaysSales, products]);
+        const topItem = Object.entries(productQtyMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '---';
+
+        return { revenue, count, avg, topItem };
+    }, [todaysSales]);
+
+    const alerts = useMemo(() => {
+        const lowStock = products.filter(p => p.stock > 0 && p.stock <= 10).length;
+        const outOfStock = products.filter(p => p.stock <= 0).length;
+        const unpaid = (sales || []).filter(s => s.status === 'proforma').length;
+        
+        // REAL DATA: Map client orders to Pickup Queue
+        const pickup = (sales || []).filter(s => s.status === 'client_order').length;
+        
+        // REAL DATA: Map pending expense requests with "Refund" in category or description to Refunds alert
+        const refunds = expenseRequests.filter(r => 
+            r.status === 'pending' && 
+            (r.category.toLowerCase().includes('refund') || r.description.toLowerCase().includes('refund'))
+        ).length;
+
+        // Placeholder for items expiring - requires schema update for expiry_date in products
+        const expiring = 0;
+
+        return { lowStock, outOfStock, unpaid, pickup, expiring, refunds };
+    }, [products, sales, expenseRequests]);
+
+    const inventoryTasks = useMemo(() => {
+        const needRestock = products.filter(p => p.stock <= 10).length;
+        const arrivedToday = products.filter(p => 
+            (p.stockHistory || []).some(h => h.date.startsWith(todayString) && h.type === 'add')
+        ).length;
+
+        return { needRestock, arrivedToday };
+    }, [products, todayString]);
+
+    const cashDrawer = useMemo(() => {
+        const cashSalesToday = todaysSales.filter(s => s.paymentMethod === 'Cash').reduce((s, x) => s + x.total, 0);
+        const cashExpensesToday = (expenses || []).filter(e => e.date.startsWith(todayString) && e.paymentSource === 'cash').reduce((s, x) => s + x.amount, 0);
+        
+        // Solidify opening balance by finding the first cash transaction of the day or previous closing state
+        // For now, calculating day's net activity
+        const opening = 0; 
+        const current = opening + cashSalesToday - cashExpensesToday;
+        const discrepancies = anomalyAlerts.filter(a => a.type === 'cash' && !a.isDismissed).length;
+
+        return { opening, current, expected: current, actual: current, discrepancies };
+    }, [todaysSales, expenses, todayString, anomalyAlerts]);
 
     return (
-        <div className="max-w-7xl mx-auto space-y-12 pb-32 animate-fade-in font-sans">
-            <div className="bg-slate-900 rounded-[3.5rem] p-10 md:p-14 text-white shadow-2xl relative overflow-hidden border border-white/5">
-                <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/20 rounded-full -mr-48 -mt-48 blur-[130px]"></div>
-                <div className="relative flex flex-col md:flex-row md:items-end justify-between gap-10">
+        <div className="max-w-7xl mx-auto space-y-8 pb-32 animate-fade-in font-sans">
+            {/* Header Block */}
+            <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden border border-white/5">
+                <div className="absolute top-0 right-0 w-80 h-80 bg-primary/20 rounded-full -mr-40 -mt-40 blur-[100px]"></div>
+                <div className="relative flex flex-col md:flex-row items-center justify-between gap-8">
                     <div>
-                        <h1 className="text-5xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">Today's Audit</h1>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] mt-8">Live Terminal Telemetry • {todayString}</p>
+                        <h1 className="text-4xl font-black uppercase tracking-tighter leading-none">Operational Pulse</h1>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] mt-4">Node Active • {new Date().toLocaleDateString(undefined, { dateStyle: 'full' })}</p>
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 px-2">
-                <KPIMetric title="Revenue" value={`${cs}${formatAbbreviatedNumber(todaysRevenue)}`} cs={cs} colorClass="text-emerald-500" trend="Gross Settlement" />
-                <KPIMetric title="Gross Profit" value={`${cs}${formatAbbreviatedNumber(Math.max(0, todaysGrossProfit))}`} cs={cs} colorClass="text-emerald-500" trend="Node Net Margin" />
-                <KPIMetric title="Expenses" value={`${cs}${formatAbbreviatedNumber(todaysExpenses)}`} cs={cs} colorClass="text-rose-500" trend="Daily Ledger Debit" />
-                <KPIMetric title="Discounts" value={`${cs}${formatAbbreviatedNumber(todaysDiscounts)}`} cs={cs} colorClass="text-warning" trend="Price Adjustments" />
+            {/* One-Tap Navigation */}
+            <div className="flex flex-wrap gap-4 px-2">
+                <NavButton icon={<PlusIcon className="w-5 h-5"/>} label="New Sale" onClick={() => navigate('/counter')} color="bg-primary !text-white shadow-primary/20" />
+                <NavButton icon={<PlusIcon className="w-5 h-5"/>} label="Add Customer" onClick={() => navigate('/customers')} />
+                <NavButton icon={<PlusIcon className="w-5 h-5"/>} label="Inventory" onClick={() => navigate('/inventory')} />
+                <NavButton icon={<ReportsIcon className="w-5 h-5"/>} label="Reports" onClick={() => navigate('/reports')} />
             </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                <div className="lg:col-span-8">
-                    <div className="bg-white dark:bg-gray-900 rounded-[3.5rem] shadow-xl border border-slate-50 dark:border-gray-800 overflow-hidden h-full">
-                        <header className="px-10 py-10 border-b dark:border-gray-800 flex justify-between items-center bg-slate-50/30 dark:bg-gray-800/30">
-                            <div className="flex items-center gap-6">
-                                <div className="w-2.5 h-2.5 bg-primary rounded-full animate-pulse shadow-[0_0_12px_rgba(37,99,235,0.5)]"></div>
-                                <h3 className="text-sm font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Active Transactions</h3>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left Column: Snapshot & Drawer */}
+                <div className="lg:col-span-8 space-y-8">
+                    {/* Today’s Sales Snapshot */}
+                    <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 shadow-xl border border-slate-100 dark:border-gray-800">
+                        <div className="flex items-center gap-4 mb-10">
+                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                            <h3 className="text-sm font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Sales Snapshot</h3>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <SnapshotMetric label="Gross Total" value={formatCurrency(metrics.revenue, cs)} subValue="Revenue Inflow" />
+                            <SnapshotMetric label="Transactions" value={metrics.count} subValue="Volume Count" />
+                            <SnapshotMetric label="Avg Ticket" value={formatCurrency(metrics.avg, cs)} subValue="Order Value" />
+                            <SnapshotMetric label="Top Performer" value={metrics.topItem} subValue="Best Seller" />
+                        </div>
+                    </div>
+
+                    {/* Cash Drawer Status */}
+                    <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 shadow-xl border border-slate-100 dark:border-gray-800">
+                        <div className="flex items-center justify-between mb-10">
+                            <div className="flex items-center gap-4">
+                                <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
+                                <h3 className="text-sm font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Drawer Registry</h3>
                             </div>
-                        </header>
-                        
-                        <div className="min-h-[400px]">
-                            {todaysSales.length > 0 ? (
-                                <div className="table-wrapper border-none rounded-none">
-                                    <div className="table-container max-h-[600px]">
-                                        <table className="w-full text-sm text-left">
-                                            <thead className="bg-slate-50 dark:bg-gray-900 text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
-                                                <tr>
-                                                    <th className="px-10 py-6">Timestamp</th>
-                                                    <th className="px-10 py-6">Client Identity</th>
-                                                    <th className="px-10 py-6 text-right">Settlement Val</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-50 dark:divide-gray-800">
-                                                {todaysSales.map(sale => {
-                                                    const customer = (customers || []).find(c => c.id === sale.customerId);
-                                                    return (
-                                                        <tr key={sale.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-800/30 transition-colors group">
-                                                            <td className="px-10 py-8 text-slate-400 tabular-nums font-bold">
-                                                                {new Date(sale.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                            </td>
-                                                            <td className="px-10 py-8 font-black text-slate-900 dark:text-white uppercase tracking-tighter text-base">
-                                                                {customer?.name || 'Guest Identity'}
-                                                            </td>
-                                                            <td className="px-10 py-8 text-right tabular-nums">
-                                                                <span className="text-xl font-black text-slate-900 dark:text-white">{formatCurrency(sale.total, cs)}</span>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                            {cashDrawer.discrepancies > 0 && (
+                                <span className="bg-rose-500 text-white text-[8px] font-black uppercase px-3 py-1 rounded-full animate-pulse">Alert: Discrepancy detected</span>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 items-center">
+                            <div className="p-8 bg-slate-900 rounded-[2rem] text-white shadow-inner relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl -mr-12 -mt-12"></div>
+                                <p className="text-[9px] font-black text-primary uppercase tracking-[0.3em] mb-4">Current Balance</p>
+                                <p className="text-5xl font-black tabular-nums tracking-tighter">{formatCurrency(cashDrawer.current, cs)}</p>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 uppercase tracking-tight px-2">
+                                    <span>Opening Point</span>
+                                    <span className="tabular-nums">{formatCurrency(cashDrawer.opening, cs)}</span>
                                 </div>
-                            ) : (
-                                <EmptyState 
-                                    icon={<TodayIcon />} 
-                                    title="Pipeline Empty" 
-                                    description="No transactions processed for the current node period."
-                                    action={{ label: "Launch Counter", onClick: () => window.location.hash = "/counter" }}
-                                />
+                                <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 uppercase tracking-tight px-2">
+                                    <span>Expected Net</span>
+                                    <span className="tabular-nums">{formatCurrency(cashDrawer.expected, cs)}</span>
+                                </div>
+                                <div className="pt-4 border-t dark:border-gray-800">
+                                    <button onClick={() => navigate('/cash-count')} className="w-full py-4 bg-slate-50 dark:bg-gray-800 text-slate-900 dark:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all border border-slate-100 dark:border-gray-700">Initialize Recount Protocol</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Column: Alerts & Tasks */}
+                <div className="lg:col-span-4 space-y-8">
+                    {/* Action Alerts (High Priority) */}
+                    <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-gray-800">
+                        <div className="flex items-center gap-4 mb-8 px-2">
+                            <WarningIcon className="w-4 h-4 text-rose-500" />
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Critical Alerts</h3>
+                        </div>
+                        <div className="space-y-3">
+                            <AlertItem label="Low Stock Nodes" count={alerts.lowStock} type="warning" onClick={() => navigate('/inventory')} />
+                            <AlertItem label="Null Stock (OOS)" count={alerts.outOfStock} type="danger" onClick={() => navigate('/inventory')} />
+                            <AlertItem label="Unpaid Quotes" count={alerts.unpaid} type="info" onClick={() => navigate('/proforma')} />
+                            <AlertItem label="Pending Refunds" count={alerts.refunds} type="warning" onClick={() => navigate('/expense-requests')} />
+                            <AlertItem label="Pickup Queue" count={alerts.pickup} type="info" onClick={() => navigate('/receipts')} />
+                            <AlertItem label="Expiring Assets" count={alerts.expiring} type="danger" onClick={() => {}} />
+                            {Object.values(alerts).every(v => v === 0) && (
+                                <p className="text-center py-10 text-[9px] font-bold text-slate-300 uppercase tracking-widest">Protocol Nominal • No Alerts</p>
                             )}
                         </div>
                     </div>
-                </div>
 
-                <div className="lg:col-span-4 space-y-10">
-                    <div className="bg-white dark:bg-gray-900 rounded-[3.5rem] p-12 shadow-xl border border-slate-50 dark:border-gray-800 h-full">
-                        <div className="flex items-center gap-6 mb-12">
-                            <div className="w-2 h-2 bg-primary rounded-full"></div>
-                            <h3 className="text-sm font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Asset Velocity</h3>
+                    {/* Inventory Tasks for Today */}
+                    <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-gray-800">
+                        <div className="flex items-center gap-4 mb-8 px-2">
+                            <CalculatorIcon className="w-4 h-4 text-primary" />
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-900 dark:text-white">Task Registry</h3>
                         </div>
-                        
-                        {topTodaysProducts.length > 0 ? (
-                            <div className="space-y-10">
-                                {topTodaysProducts.map((p, i) => (
-                                    <div key={p.name} className="group">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <p className="text-[11px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight truncate pr-6">{p.name}</p>
-                                            <p className="text-lg font-black text-primary tabular-nums">{p.quantity} Units</p>
-                                        </div>
-                                        <div className="h-2 w-full bg-slate-50 dark:bg-gray-800 rounded-full overflow-hidden shadow-inner">
-                                            <div 
-                                                className="h-full bg-primary transition-all duration-1000 group-hover:bg-blue-400" 
-                                                style={{ width: `${Math.min(100, (p.quantity / topTodaysProducts[0].quantity) * 100)}%` }}
-                                            ></div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <EmptyState 
-                                icon={<InventoryIcon />} 
-                                title="Zero Velocity" 
-                                description="No inventory movement detected."
-                                compact
-                            />
-                        )}
+                        <div className="space-y-4">
+                            <button onClick={() => navigate('/inventory')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-gray-800 rounded-2xl group hover:bg-primary transition-all">
+                                <div className="flex flex-col items-start">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 group-hover:text-white">Restock Protocol</span>
+                                    {inventoryTasks.needRestock > 0 && <span className="text-[8px] font-bold text-rose-500 group-hover:text-white/80 uppercase mt-1">{inventoryTasks.needRestock} SKU Needs Unit Injection</span>}
+                                </div>
+                                <PlusIcon className="w-4 h-4 text-slate-400 group-hover:text-white" />
+                            </button>
+                            <button onClick={() => navigate('/goods-receiving')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-gray-800 rounded-2xl group hover:bg-primary transition-all">
+                                <div className="flex flex-col items-start">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 group-hover:text-white">Arrival Registry</span>
+                                    {inventoryTasks.arrivedToday > 0 && <span className="text-[8px] font-bold text-emerald-500 group-hover:text-white/80 uppercase mt-1">{inventoryTasks.arrivedToday} POs Received Today</span>}
+                                </div>
+                                <PlusIcon className="w-4 h-4 text-slate-400 group-hover:text-white" />
+                            </button>
+                            <button onClick={() => navigate('/commission')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-gray-800 rounded-2xl group hover:bg-primary transition-all">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 group-hover:text-white">Price Adjustments</span>
+                                <PlusIcon className="w-4 h-4 text-slate-400 group-hover:text-white" />
+                            </button>
+                            <button onClick={() => navigate('/cash-count')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-gray-800 rounded-2xl group hover:bg-primary transition-all">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 group-hover:text-white">Unit Recount</span>
+                                <PlusIcon className="w-4 h-4 text-slate-400 group-hover:text-white" />
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

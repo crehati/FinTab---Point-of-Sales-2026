@@ -115,9 +115,14 @@ export const MODULE_CONFIG: ModuleConfig[] = [
         key: 'REPORTS',
         name: 'Reports Page',
         actions: [
-            { key: 'view_sales_reports', name: 'View Sales Reports', description: 'Access revenue and performance reports.' },
+            { key: 'view_sales_reports', name: 'View Financial Reports', description: 'Access revenue and general financial metrics.' },
             { key: 'view_profit_reports', name: 'View Profit Reports', description: 'Access sensitive earnings and margin reports.' },
-            { key: 'view_inventory_reports', name: 'View Inventory Reports', description: 'Access stock velocity reports.' },
+            { key: 'view_inventory_reports', name: 'View Inventory Health', description: 'Access stock velocity and health reports.' },
+            { key: 'view_product_performance', name: 'View Product Performance', description: 'Detailed best/low seller and margin analytics per item.' },
+            { key: 'view_customer_insights', name: 'View Customer Insights', description: 'Analytics on new vs returning clients and LTV.' },
+            { key: 'view_forecasting', name: 'View AI Forecasting', description: 'Predictive analytics for sales and inventory needs.' },
+            { key: 'view_receipt_analytics', name: 'View Receipt Analytics', description: 'Statistics on basket density and item combinations.' },
+            { key: 'view_exception_reports', name: 'View Exception Reports', description: 'Suspicious activity, high discounts, and void audits.' },
         ]
     },
     {
@@ -184,7 +189,16 @@ export const DEFAULT_PERMISSIONS: AppPermissions = {
             INVENTORY: { view_inventory: true },
             CUSTOMERS: { view_customers: true, create_customer: true, edit_customer: true },
             EXPENSES: { view_expenses: true, add_expense: true },
-            REPORTS: { view_sales_reports: true },
+            REPORTS: { 
+                view_sales_reports: true, 
+                view_profit_reports: true, 
+                view_inventory_reports: true, 
+                view_product_performance: true, 
+                view_customer_insights: true, 
+                view_forecasting: true, 
+                view_receipt_analytics: true, 
+                view_exception_reports: true 
+            },
             FINANCE: { cash_count_enter: true, weekly_inventory_check_enter: true, goods_receiving_enter: true },
             AI: { view_assistant: true }
         },

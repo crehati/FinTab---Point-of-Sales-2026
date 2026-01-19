@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { BusinessSettingsData, BusinessProfile, User, WorkflowRoleKey, WorkflowRoleAssignment, AnomalySettings } from '../types';
 import Card from './Card';
 import DestructiveConfirmationModal from './DestructiveConfirmationModal';
-import { CreditCardIcon, TruckIcon, CalculatorIcon, PlusIcon, DeleteIcon, ChevronDownIcon, InvestorIcon, BuildingIcon, StorefrontIcon, ProfileIcon, CloseIcon, COUNTRIES, LightBulbIcon, WarningIcon, ShieldCheckIcon } from '../constants';
+import { CreditCardIcon, TruckIcon, CalculatorIcon, PlusIcon, DeleteIcon, ChevronDownIcon, InvestorIcon, BuildingIcon, StorefrontIcon, ProfileIcon, CloseIcon, COUNTRIES, LightBulbIcon, WarningIcon, ShieldCheckIcon, BankIcon } from '../constants';
 
 interface BusinessSettingsProps {
     settings: BusinessSettingsData;
@@ -117,6 +117,15 @@ const WORKFLOW_ROLE_LABELS: Record<WorkflowRoleKey, { label: string; category: s
     stockApprover: { label: 'Stock Approver (Final)', category: 'Stock Audit' },
 };
 
+const CURRENCIES = [
+    { name: 'US Dollar', symbol: '$' },
+    { name: 'Haitian Gourde', symbol: 'G' },
+    { name: 'Euro', symbol: '€' },
+    { name: 'Dominican Peso', symbol: 'RD$' },
+    { name: 'Canadian Dollar', symbol: 'CA$' },
+    { name: 'British Pound', symbol: '£' },
+];
+
 const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateSettings, businessProfile, onUpdateBusinessProfile, onResetBusiness, t, currentUser, onUpdateCurrentUserProfile, users }) => {
     const [draftSettings, setDraftSettings] = useState<any>(settings || { paymentMethods: [] });
     const [draftProfile, setDraftProfile] = useState<any>(businessProfile || {});
@@ -153,7 +162,7 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
         }
     }, [currentUser]);
 
-    const handleSettingsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleSettingsChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type, checked } = e.target;
         const keys = name.split('.');
         
@@ -226,7 +235,7 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
     const handleSave = () => {
         if (!currentUser) return;
         try {
-            // FIX: Atomic sync of owner identity & initial capital injection
+            // Atomic sync of owner identity & initial capital injection
             if (currentUser.role === 'Owner') {
                 const ownerFullPhoneNumber = `${ownerPhone.countryCode}${ownerPhone.localPhone.replace(/\D/g, '')}`;
                 onUpdateCurrentUserProfile({
@@ -356,6 +365,24 @@ const BusinessSettings: React.FC<BusinessSettingsProps> = ({ settings, onUpdateS
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </SectionCard>
+            </SectionErrorBoundary>
+
+            <SectionErrorBoundary sectionTitle="Regional Protocol" onReportError={(err) => setSectionErrors(p => ({ ...p, regional: err.message }))}>
+                <SectionCard title="Currency & Regional Protocol" description="Configure global currency nodes for financial respect." icon={<BankIcon />}>
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Currency Mode Selection</label>
+                        <select 
+                            name="currencySymbol" 
+                            value={draftSettings.currencySymbol || '$'} 
+                            onChange={handleSettingsChange}
+                            className="w-full bg-slate-50 dark:bg-gray-900 border-none rounded-2xl p-4 text-sm font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+                        >
+                            {CURRENCIES.map(curr => (
+                                <option key={curr.symbol} value={curr.symbol}>{curr.name} ({curr.symbol})</option>
+                            ))}
+                        </select>
                     </div>
                 </SectionCard>
             </SectionErrorBoundary>

@@ -102,6 +102,7 @@ export interface WeeklyInventoryCheck extends Syncable {
 export type BusinessSettingsData = Syncable & {
   paymentMethods: string[];
   defaultTaxRate: number;
+  currencySymbol?: string;
   rounding: {
     enabled: boolean;
     toNearest: number;

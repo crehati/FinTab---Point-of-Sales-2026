@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase, resilientQuery } from '../lib/supabase';
 import type { User } from '../types';
 import { BuildingIcon, LogoutIcon, PlusIcon, WarningIcon, CrownIcon, StaffIcon, TransactionIcon, ShieldCheckIcon } from '../constants';
 
@@ -23,14 +23,6 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
         setError(null);
         
         try {
-            // Safety timeout to prevent infinite loading screen
-            const fetchTimeout = setTimeout(() => {
-                if (isLoading) {
-                    setError("Connection Timeout: The global registry is taking too long to respond. Check your internet connection.");
-                    setIsLoading(false);
-                }
-            }, 10000);
-
             const client = await supabase.wait();
             const { data: sessionData, error: authError } = await client.auth.getSession();
             
@@ -38,47 +30,35 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
             
             const session = sessionData.session;
             if (!session?.user) {
-                clearTimeout(fetchTimeout);
                 setIsLoading(false);
                 return;
             }
 
             const sessionToken = sessionStorage.getItem('fintab_invite_token');
             if (sessionToken) {
-                clearTimeout(fetchTimeout);
                 navigate(`/invite?token=${sessionToken}`);
                 return;
             }
 
-            // Independent parallel fetch to prevent one failure from killing the entire process
-            const [mshipResponse, inviteResponse] = await Promise.allSettled([
+            // Fetch memberships with retry logic
+            const mshipResult = await resilientQuery(() => 
                 client
                     .from('memberships')
                     .select('*, businesses(*)')
-                    .eq('user_id', session.user.id),
+                    .eq('user_id', session.user.id)
+            );
+
+            // Fetch invitations with retry logic
+            const inviteResult = await resilientQuery(() => 
                 client
                     .from('invitations')
                     .select('id, token, role, business_id, businesses(name, id)')
                     .eq('invited_email', session.user.email?.toLowerCase() || '')
                     .eq('status', 'pending')
-            ]);
-            
-            clearTimeout(fetchTimeout);
+            );
 
-            let memberships = [];
-            let invites = [];
-
-            if (mshipResponse.status === 'fulfilled' && !mshipResponse.value.error) {
-                memberships = mshipResponse.value.data || [];
-            } else {
-                console.error("Membership fetch failed:", mshipResponse);
-            }
-
-            if (inviteResponse.status === 'fulfilled' && !inviteResponse.value.error) {
-                invites = inviteResponse.value.data || [];
-            } else {
-                console.error("Invite fetch failed:", inviteResponse);
-            }
+            let memberships = mshipResult.data || [];
+            let invites = inviteResult.data || [];
 
             // Auto-redirect if exactly one node exists and no pending invites
             if (memberships.length === 1 && invites.length === 0) {
@@ -94,14 +74,16 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
             });
             setPendingInvites(Array.from(uniqueInvitesMap.values()));
 
-            // If we have nothing and both queries finished, we are ready to show onboarding
             setIsLoading(false);
 
         } catch (err: any) {
             console.error("[FinTab Registry] Sync Failure:", err);
-            const msg = err.message === 'Failed to fetch' 
-                ? 'Network Protocol Error: Could not reach the Supabase node. This may be caused by an ad-blocker or firewall.' 
-                : (err.message || "Protocol connection error.");
+            let msg = err.message || "Protocol connection error.";
+            
+            if (msg === 'Failed to fetch') {
+                msg = "Network Protocol Error: The browser failed to reach the database node. Action: Disable ad-blockers (e.g., uBlock Origin, Brave Shield) and check your internet firewall.";
+            }
+            
             setError(msg);
             setIsLoading(false);
         }
@@ -146,8 +128,8 @@ const SelectBusiness: React.FC<SelectBusinessProps> = ({ currentUser, onSelect, 
                                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed px-4">
                                     The Hub could not synchronize with the global registry.
                                 </p>
-                                <div className="p-3 bg-slate-50 dark:bg-gray-800 rounded-xl mt-4 max-h-32 overflow-y-auto">
-                                    <code className="text-[10px] font-mono text-rose-500 break-all">{error}</code>
+                                <div className="p-4 bg-rose-50/50 dark:bg-rose-950/10 rounded-2xl border border-rose-100 dark:border-rose-900/30 text-left">
+                                    <p className="text-[10px] font-mono text-rose-600 dark:text-rose-400 whitespace-pre-wrap">{error}</p>
                                 </div>
                             </div>
                             <button 

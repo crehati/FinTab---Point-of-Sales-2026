@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useMemo, useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
@@ -6,7 +7,7 @@ import Card from './Card';
 import { 
     CustomersIcon, InventoryIcon, StaffIcon, InvestorIcon, WarningIcon, 
     CloseIcon, LinkIcon, FINALIZED_SALE_STATUSES, StorefrontIcon, 
-    ReportsIcon, ExpensesIcon, LightBulbIcon, CounterIcon, PlusIcon, 
+    ReportsIcon, ExpensesIcon, LightBulbIcon, CartIcon, PlusIcon, 
     SearchIcon, CrownIcon, ShieldCheckIcon, TransactionIcon, UsersGroupIcon,
     PhoneIcon, CreditCardIcon, BankIcon, CalculatorIcon, TodayIcon
 } from '../constants';

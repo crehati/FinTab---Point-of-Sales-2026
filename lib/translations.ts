@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 export const translations: Record<string, any> = {
   en: {
@@ -34,7 +35,7 @@ export const translations: Record<string, any> = {
     dashboard: 'Dashboard',
     today: 'Today',
     reports: 'Reports',
-    internalItems: 'Internal Items',
+    internalItems: 'Items',
     inventory: 'Inventory',
     receipts: 'Receipts',
     proforma: 'Proforma',
@@ -86,7 +87,7 @@ export const translations: Record<string, any> = {
     firstSign: 'First Signer',
     secondSign: 'Second Signer',
     finalApprove: 'Final Approver',
-    currency: 'Currency & Nodes',
+    currency: 'Bank Accounts',
     valuation: 'Valuation & COGS',
     velocity: 'Product Velocity',
     pipeline: 'Cash Transactions',

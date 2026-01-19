@@ -3,7 +3,7 @@ import React, { memo, useState, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
     TodayIcon, 
-    CounterIcon, 
+    CartIcon, 
     BriefcaseIcon, 
     CloseIcon, 
     InventoryIcon,
@@ -44,7 +44,7 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ t, cart, currentUser, permi
         { to: '/dashboard', text: t('dashboard'), icon: <DashboardIcon /> },
         { to: '/today', text: t('today'), icon: <TodayIcon />, module: 'REPORTS', action: 'view_sales_reports' },
         { to: '/items', text: t('internalItems'), icon: <InventoryIcon />, module: 'SALES', action: 'view_counter' },
-        { to: '/counter', text: t('counter') || 'Counter', icon: <CounterIcon />, badge: cartItemCount, module: 'SALES', action: 'view_counter' },
+        { to: '/counter', text: t('counter') || 'Counter', icon: <CartIcon />, badge: cartItemCount, module: 'SALES', action: 'view_counter' },
     ];
     
     const filteredNavItems = navItems.filter(item => {

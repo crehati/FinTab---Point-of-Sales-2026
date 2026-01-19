@@ -585,6 +585,7 @@ export const DEFAULT_OWNER_SETTINGS: OwnerSettings = {
 export const DEFAULT_BUSINESS_SETTINGS: BusinessSettingsData = {
     paymentMethods: ['Cash', 'Card', 'Bank Receipt', 'Mobile Payment'],
     defaultTaxRate: 0,
+    currencySymbol: '$',
     rounding: { enabled: false, toNearest: 0.05 },
     delivery: { enabled: false, fee: 0 },
     investorProfitWithdrawalRate: 10,
